@@ -1,3 +1,7 @@
+﻿# Documentation
+
+[English](./README.md) | [Русский](./ru/README_ru.md)
+
 ## ReshEge Helper
 
 ReshEge Helper is a userscript that improves the ReshEge game interface by adding a modern menu, match history, leaderboard view, and customization options.
@@ -42,4 +46,4 @@ Basic initialization and status messages are available in the browser console to
 
 ## 📄 License
 
-MIT
+[MIT](././LICENSE)
