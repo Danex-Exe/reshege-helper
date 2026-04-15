@@ -46,4 +46,4 @@ Basic initialization and status messages are available in the browser console to
 
 ## 📄 License
 
-[MIT](././LICENSE)
+[MIT](../LICENSE)

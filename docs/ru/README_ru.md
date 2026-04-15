@@ -46,4 +46,4 @@ ReshEge Helper — это userscript, который улучшает интер
 
 ## 📄 Лицензия
 
-MIT
+[MIT](../../LICENSE)
