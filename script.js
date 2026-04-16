@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         ReshEge-Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.8.0
+// @version      0.9.0
 // @description  Удобное меню для игры «Держи оборону» с историей матчей и таблицей лидеров.
 // @author       github.com/Danex-Exe
 // @match        https://ege.sdamgia.ru/game.htm
@@ -15,7 +15,7 @@
 
   const SCRIPT_META = {
     title: 'ReshEge-Helper',
-    version: 'v0.8.0'
+    version: 'v0.9.0'
   };
 
   const VIEW = {
@@ -32,6 +32,7 @@
   const CHOICE_MARKER_REGEX = /\(\s*(\d+)\)/g;
   const THEME_STORAGE_KEY = 're_helper_theme_v1';
   const ANSWER_CACHE_STORAGE_KEY = 're_helper_answer_cache_v1';
+  const AUTO_ANSWER_STORAGE_KEY = 're_helper_auto_answer_v1';
   const MAX_ANSWER_CACHE_ENTRIES = 500;
 
   const EXTRA_MENU_BUTTONS = [];
@@ -42,6 +43,7 @@
   let currentTheme = THEME.DARK;
   let currentProblemFingerprint = null;
   let answerCache = {};
+  let autoAnswerEnabled = false;
   let hotkeysBound = false;
   const queuedExternalButtons = [...EXTRA_MENU_BUTTONS];
 
@@ -231,7 +233,30 @@
     return String(cacheRecord?.a ?? '').trim();
   }
 
+  function loadAutoAnswerPreference() {
+    try {
+      const stored = localStorage.getItem(AUTO_ANSWER_STORAGE_KEY);
+      return stored === 'true';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function saveAutoAnswerPreference(enabled) {
+    try {
+      localStorage.setItem(AUTO_ANSWER_STORAGE_KEY, String(enabled));
+    } catch (error) {}
+  }
+
+  function toggleAutoAnswer() {
+    autoAnswerEnabled = !autoAnswerEnabled;
+    saveAutoAnswerPreference(autoAnswerEnabled);
+    return autoAnswerEnabled;
+  }
+
   function tryAutofillRememberedAnswer(problemRef) {
+    if (!autoAnswerEnabled) return false;
+    
     const rememberedAnswer = getRememberedAnswer(problemRef);
     if (!rememberedAnswer) return false;
 
@@ -280,7 +305,6 @@
     const player1HasId = hasIdValue(match?.player1);
     const player2HasId = hasIdValue(match?.player2);
 
-    // Если у одного из игроков нет id, считаем соперника ботом.
     return !player1HasId || !player2HasId;
   }
 
@@ -1158,6 +1182,28 @@
           text-align: center;
         }
 
+        .auto-answer-on {
+          background: linear-gradient(145deg, #2e7d5e 0%, #1d6e4a 100%) !important;
+          border-color: rgba(106, 242, 155, 0.45) !important;
+        }
+
+        .auto-answer-off {
+          background: linear-gradient(145deg, #9e424b 0%, #7d2d36 100%) !important;
+          border-color: rgba(255, 144, 165, 0.45) !important;
+        }
+
+        html[data-re-theme='light'] .auto-answer-on {
+          background: linear-gradient(145deg, #2a9d6e 0%, #1f855a 100%) !important;
+          border-color: rgba(26, 163, 87, 0.4) !important;
+          color: #ffffff;
+        }
+
+        html[data-re-theme='light'] .auto-answer-off {
+          background: linear-gradient(145deg, #d65b6b 0%, #b43b4e 100%) !important;
+          border-color: rgba(214, 91, 107, 0.5) !important;
+          color: #ffffff;
+        }
+
         .leaderboard-table {
           width: 100%;
           border-collapse: separate;
@@ -1494,7 +1540,8 @@
         id: buttonConfig.id,
         label: buttonConfig.label,
         icon: typeof buttonConfig.icon === 'string' ? buttonConfig.icon : '•',
-        onClick: buttonConfig.onClick
+        onClick: buttonConfig.onClick,
+        className: buttonConfig.className || ''
       };
 
       this.menuButtons.push(normalizedButton);
@@ -1510,6 +1557,15 @@
         ? 'Тема: тёмная'
         : 'Тема: светлая';
       themeButton.icon = currentTheme === THEME.DARK ? '🌙' : '☀️';
+    }
+
+    updateAutoAnswerButton() {
+      const autoButton = this.menuButtonsMap.get('re_auto_answer');
+      if (!autoButton) return;
+
+      autoButton.label = autoAnswerEnabled ? 'Автоответчик: ВКЛ' : 'Автоответчик: ВЫКЛ';
+      autoButton.icon = autoAnswerEnabled ? '🟢' : '🔴';
+      autoButton.className = autoAnswerEnabled ? 'auto-answer-on' : 'auto-answer-off';
     }
 
     registerDefaultButtons() {
@@ -1528,6 +1584,18 @@
       });
 
       this.registerMenuButton({
+        id: 're_auto_answer',
+        label: 'Автоответчик',
+        icon: '🔴',
+        className: 'auto-answer-off',
+        onClick: () => {
+          toggleAutoAnswer();
+          this.updateAutoAnswerButton();
+          this.renderMainMenu();
+        }
+      });
+
+      this.registerMenuButton({
         id: 're_theme_toggle',
         label: 'Тема',
         icon: '🌓',
@@ -1539,6 +1607,7 @@
       });
 
       this.updateThemeToggleButton();
+      this.updateAutoAnswerButton();
     }
 
     toggleDrawer() {
@@ -1589,10 +1658,11 @@
     renderMainMenu() {
       this.currentView = VIEW.MAIN;
       this.updateThemeToggleButton();
+      this.updateAutoAnswerButton();
 
       const buttonsHtml = this.menuButtons.map((button) => {
         return `
-          <button class="ReshEge_Helper_menu_button" type="button" data-menu-action="${escapeHtml(button.id)}">
+          <button class="ReshEge_Helper_menu_button ${button.className || ''}" type="button" data-menu-action="${escapeHtml(button.id)}">
             <span class="ReshEge_Helper_menu_button_icon">${escapeHtml(button.icon)}</span>
             <span>${escapeHtml(button.label)}</span>
           </button>
@@ -1801,6 +1871,7 @@
     currentTheme = loadThemePreference();
     applyTheme(currentTheme, false);
     answerCache = loadAnswerCache();
+    autoAnswerEnabled = loadAutoAnswerPreference();
     exposePublicApi();
     applySiteStyles();
 
