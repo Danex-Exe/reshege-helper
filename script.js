@@ -1,8 +1,8 @@
 ﻿// ==UserScript==
 // @name         ReshEge-Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.9.0
-// @description  Удобное меню для игры «Держи оборону» с историей матчей и таблицей лидеров.
+// @version      1.0.0
+// @description  Удобное меню для игры «Держи оборону» с историей матчей, таблицей лидеров и расширенной статистикой.
 // @author       github.com/Danex-Exe
 // @match        https://ege.sdamgia.ru/game.htm
 // @grant        none
@@ -15,13 +15,15 @@
 
   const SCRIPT_META = {
     title: 'ReshEge-Helper',
-    version: 'v0.9.0'
+    version: 'v1.0.0'
   };
 
   const VIEW = {
     MAIN: 'main',
     HISTORY: 'history',
-    LEADERBOARD: 'highscore'
+    LEADERBOARD: 'highscore',
+    AUTO_BET: 'auto_bet',
+    AUTO_HIGHLIGHT: 'auto_highlight'
   };
   const THEME = {
     DARK: 'dark',
@@ -33,18 +35,32 @@
   const THEME_STORAGE_KEY = 're_helper_theme_v1';
   const ANSWER_CACHE_STORAGE_KEY = 're_helper_answer_cache_v1';
   const AUTO_ANSWER_STORAGE_KEY = 're_helper_auto_answer_v1';
+  const AUTO_BET_STORAGE_KEY = 're_helper_auto_bet_v1';
+  const AUTO_HIGHLIGHT_STORAGE_KEY = 're_helper_auto_highlight_v1';
+  const SUBJECT_STORAGE_KEY = 're_helper_selected_subject_v1';
   const MAX_ANSWER_CACHE_ENTRIES = 500;
+  const SUBJECTS = ['math', 'rus', 'phys', 'chem', 'bio', 'hist', 'soc', 'inf', 'geo', 'eng', 'ger', 'fra', 'spa', 'lit'];
 
   const EXTRA_MENU_BUTTONS = [];
 
   let game = null;
   let menuUI = null;
   let pingTimer = null;
+  let pingValue = 0;
+  let pingDisplayElement = null;
+  let lastPingSentTime = 0;
   let currentTheme = THEME.DARK;
   let currentProblemFingerprint = null;
   let answerCache = {};
   let autoAnswerEnabled = false;
+  let autoBetEnabled = false;
+  let autoBetValue = 10;
+  let autoHighlightEnabled = false;
+  let highlightWords = [];
   let hotkeysBound = false;
+  let leaderboardCache = null;
+  let leaderboardCacheTime = 0;
+  let selectedSubject = 'math';
   const queuedExternalButtons = [...EXTRA_MENU_BUTTONS];
 
   function safeArray(value) {
@@ -54,18 +70,12 @@
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => {
       switch (char) {
-        case '&':
-          return '&amp;';
-        case '<':
-          return '&lt;';
-        case '>':
-          return '&gt;';
-        case '"':
-          return '&quot;';
-        case "'":
-          return '&#39;';
-        default:
-          return char;
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return char;
       }
     });
   }
@@ -107,15 +117,11 @@
       const normalizedLegacyValue = record.trim();
       return normalizedLegacyValue ? { a: normalizedLegacyValue, t: 0 } : null;
     }
-
     if (!record || typeof record !== 'object') return null;
-
     const answer = String(record.a ?? record.answer ?? '').trim();
     if (!answer) return null;
-
     const updatedAtRaw = Number(record.t ?? record.updatedAt ?? 0);
     const updatedAt = Number.isFinite(updatedAtRaw) ? updatedAtRaw : 0;
-
     return { a: answer, t: updatedAt };
   }
 
@@ -132,21 +138,16 @@
     const container = document.createElement('div');
     container.innerHTML = `${String(htmlBody ?? '')}${String(extraText ?? '')}`;
     const plain = String(container.textContent ?? '');
-    return plain
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+    return plain.replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
   function createProblemFingerprint(payload) {
     const legacyKey = normalizeProblemText(payload?.body, payload?.text);
     if (!legacyKey) return null;
-
     const hashA = hashStringFNV1a(legacyKey, 0x811c9dc5);
     const hashB = hashStringFNV1a(legacyKey, 0x9e3779b1);
     const lengthPart = legacyKey.length.toString(36);
     const key = `${lengthPart}-${hashA.toString(36)}-${hashB.toString(36)}`;
-
     return { key, legacyKey };
   }
 
@@ -154,7 +155,6 @@
     const cacheEntries = Object.entries(answerCache);
     const overflow = cacheEntries.length - MAX_ANSWER_CACHE_ENTRIES;
     if (overflow <= 0) return;
-
     cacheEntries
       .sort((left, right) => {
         const leftTime = Number(left[1]?.t ?? 0);
@@ -171,18 +171,13 @@
     try {
       const raw = localStorage.getItem(ANSWER_CACHE_STORAGE_KEY);
       if (!raw) return {};
-
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return {};
-
       const normalizedCache = {};
       Object.entries(parsed).forEach(([cacheKey, cacheValue]) => {
         const normalizedRecord = normalizeCacheRecord(cacheValue);
-        if (normalizedRecord) {
-          normalizedCache[cacheKey] = normalizedRecord;
-        }
+        if (normalizedRecord) normalizedCache[cacheKey] = normalizedRecord;
       });
-
       return normalizedCache;
     } catch (error) {
       return {};
@@ -198,18 +193,14 @@
 
   function resolveCacheRecord(problemRef) {
     if (!problemRef?.key) return null;
-
     const directRecord = normalizeCacheRecord(answerCache[problemRef.key]);
     if (directRecord) {
       answerCache[problemRef.key] = directRecord;
       return directRecord;
     }
-
     if (!problemRef.legacyKey || problemRef.legacyKey === problemRef.key) return null;
-
     const legacyRecord = normalizeCacheRecord(answerCache[problemRef.legacyKey]);
     if (!legacyRecord) return null;
-
     const migratedRecord = { a: legacyRecord.a, t: Date.now() };
     answerCache[problemRef.key] = migratedRecord;
     delete answerCache[problemRef.legacyKey];
@@ -219,10 +210,8 @@
 
   function rememberAnswerForProblem(problemRef, answer) {
     if (!problemRef?.key) return;
-
     const normalizedAnswer = String(answer ?? '').trim();
     if (!normalizedAnswer) return;
-
     answerCache[problemRef.key] = { a: normalizedAnswer, t: Date.now() };
     saveAnswerCache();
   }
@@ -254,15 +243,82 @@
     return autoAnswerEnabled;
   }
 
+  function loadAutoBetPreference() {
+    try {
+      const stored = localStorage.getItem(AUTO_BET_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          autoBetEnabled = parsed.enabled === true;
+          autoBetValue = [10, 20, 30, 40, 50].includes(parsed.value) ? parsed.value : 10;
+          return;
+        }
+      }
+      autoBetEnabled = false;
+      autoBetValue = 10;
+    } catch (error) {
+      autoBetEnabled = false;
+      autoBetValue = 10;
+    }
+  }
+
+  function saveAutoBetPreference() {
+    try {
+      localStorage.setItem(AUTO_BET_STORAGE_KEY, JSON.stringify({
+        enabled: autoBetEnabled,
+        value: autoBetValue
+      }));
+    } catch (error) {}
+  }
+
+  function loadAutoHighlightPreference() {
+    try {
+      const stored = localStorage.getItem(AUTO_HIGHLIGHT_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          autoHighlightEnabled = parsed.enabled === true;
+          highlightWords = Array.isArray(parsed.words) ? parsed.words.filter(w => typeof w === 'string' && w.trim()) : [];
+          return;
+        }
+      }
+      autoHighlightEnabled = false;
+      highlightWords = [];
+    } catch (error) {
+      autoHighlightEnabled = false;
+      highlightWords = [];
+    }
+  }
+
+  function saveAutoHighlightPreference() {
+    try {
+      localStorage.setItem(AUTO_HIGHLIGHT_STORAGE_KEY, JSON.stringify({
+        enabled: autoHighlightEnabled,
+        words: highlightWords
+      }));
+    } catch (error) {}
+  }
+
+  function loadSelectedSubject() {
+    try {
+      const stored = localStorage.getItem(SUBJECT_STORAGE_KEY);
+      if (stored && SUBJECTS.includes(stored)) return stored;
+    } catch (e) {}
+    return 'math';
+  }
+
+  function saveSelectedSubject(subj) {
+    try {
+      localStorage.setItem(SUBJECT_STORAGE_KEY, subj);
+    } catch (e) {}
+  }
+
   function tryAutofillRememberedAnswer(problemRef) {
     if (!autoAnswerEnabled) return false;
-    
     const rememberedAnswer = getRememberedAnswer(problemRef);
     if (!rememberedAnswer) return false;
-
     const answerInput = document.querySelector('.game_answer_inp');
     if (!answerInput) return false;
-
     answerInput.value = rememberedAnswer;
     answerInput.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
@@ -271,13 +327,9 @@
   function setResultBadgeState(selector, isRight) {
     const badge = document.querySelector(selector);
     if (!badge) return;
-
     badge.classList.remove('re-status-correct', 're-status-wrong');
-    if (isRight === true) {
-      badge.classList.add('re-status-correct');
-    } else if (isRight === false) {
-      badge.classList.add('re-status-wrong');
-    }
+    if (isRight === true) badge.classList.add('re-status-correct');
+    else if (isRight === false) badge.classList.add('re-status-wrong');
   }
 
   function resetResultBadgeStates() {
@@ -299,12 +351,9 @@
       hasIdValue(match?.coplayer_id) ||
       hasIdValue(match?.opponent_id) ||
       hasIdValue(match?.coplayerId);
-
     if (hasExplicitOpponentId) return false;
-
     const player1HasId = hasIdValue(match?.player1);
     const player2HasId = hasIdValue(match?.player2);
-
     return !player1HasId || !player2HasId;
   }
 
@@ -312,6 +361,54 @@
     const rawName = String(match?.coplayer ?? '').trim() || 'Неизвестный соперник';
     if (!isBotMatchOpponent(match)) return rawName;
     return rawName.startsWith('БОТ') ? rawName : `БОТ ${rawName}`;
+  }
+
+  async function fetchLeaderboard() {
+    if (!game || typeof game.send !== 'function') return null;
+    return new Promise((resolve) => {
+      const originalHandler = game.message_handler;
+      game.message_handler = (resp) => {
+        if (resp?.function === 'show_highscore') {
+          game.message_handler = originalHandler;
+          resolve(resp);
+        } else if (originalHandler) {
+          originalHandler(resp);
+        }
+      };
+      game.send({ action: 'get_highscore' });
+      setTimeout(() => {
+        game.message_handler = originalHandler;
+        resolve(null);
+      }, 5000);
+    });
+  }
+
+  async function getLeaderboardData(force = false) {
+    const now = Date.now();
+    if (!force && leaderboardCache && (now - leaderboardCacheTime) < 60000) {
+      return leaderboardCache;
+    }
+    const data = await fetchLeaderboard();
+    if (data) {
+      leaderboardCache = data;
+      leaderboardCacheTime = now;
+    }
+    return leaderboardCache;
+  }
+
+  function getOpponentRankInfo(opponentId, leaderboardData) {
+    if (!opponentId || !leaderboardData?.scores) return null;
+    const scores = leaderboardData.scores;
+    for (let i = 0; i < scores.length; i++) {
+      const entry = scores[i];
+      if (entry && (entry.id === opponentId || entry.user_id === opponentId)) {
+        return {
+          rank: i + 1,
+          score: entry.score
+        };
+      }
+    }
+    return null;
   }
 
   function isLetter(char) {
@@ -340,18 +437,15 @@
     const raw = String(value ?? '').trim();
     const seen = new Set();
     let result = '';
-
     for (const char of raw) {
       if (isLetter(char)) {
         result += char;
         continue;
       }
-
       if (seen.has(char)) continue;
       seen.add(char);
       result += char;
     }
-
     return result;
   }
 
@@ -385,12 +479,10 @@
   function triggerChoiceFromKeyboard(choiceDigit, answerInput) {
     const choiceButtons = Array.from(document.querySelectorAll('.game_prob .re-choice-button'));
     const matchedButton = choiceButtons.find((button) => button.dataset.choiceValue === choiceDigit);
-
     if (matchedButton) {
       matchedButton.click();
       return true;
     }
-
     answerInput.value += choiceDigit;
     answerInput.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
@@ -415,16 +507,31 @@
       if (isMenuOpen()) return;
 
       const answerInput = getAnswerInput();
-      if (!answerInput) return;
-
       const activeElement = document.activeElement;
       const focusedInAnswerInput = activeElement === answerInput;
-      if (focusedInAnswerInput) return;
-      if (isEditableTarget(activeElement)) return;
 
       const digitMatch = String(event.key).match(/^[1-9]$/);
+
       if (digitMatch) {
-        const handled = triggerChoiceFromKeyboard(digitMatch[0], answerInput);
+        const digit = digitMatch[0];
+        const betButtons = document.querySelectorAll('.game_turn_bet');
+        if (betButtons.length > 0 && !focusedInAnswerInput && !isEditableTarget(activeElement)) {
+          const betValue = parseInt(digit, 10) * 10;
+          for (const btn of betButtons) {
+            if (btn.textContent.trim() === String(betValue)) {
+              btn.click();
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+          }
+        }
+
+        if (!answerInput) return;
+        if (focusedInAnswerInput) return;
+        if (isEditableTarget(activeElement)) return;
+
+        const handled = triggerChoiceFromKeyboard(digit, answerInput);
         if (handled) {
           event.preventDefault();
           event.stopPropagation();
@@ -433,6 +540,9 @@
       }
 
       if (event.key === 'Enter') {
+        if (!answerInput) return;
+        if (focusedInAnswerInput) return;
+        if (isEditableTarget(activeElement)) return;
         const submitted = triggerSubmitFromKeyboard();
         if (submitted) {
           event.preventDefault();
@@ -456,7 +566,6 @@
         resolve(window.game);
         return;
       }
-
       const checkInterval = setInterval(() => {
         if (window.game) {
           clearInterval(checkInterval);
@@ -469,19 +578,211 @@
   function setConnectionIndicator(online) {
     const indicator = document.getElementById('re_connection_indicator');
     if (!indicator) return;
-
     indicator.style.backgroundColor = online ? '#40d98a' : '#ff5b7f';
     indicator.title = online ? 'Соединение с сервером активно' : 'Нет ответа от сервера';
   }
 
+  function updatePingDisplay(pingMs) {
+    if (!pingDisplayElement) {
+      pingDisplayElement = document.createElement('div');
+      pingDisplayElement.id = 're_ping_display';
+      pingDisplayElement.style.cssText = `
+        position: fixed;
+        bottom: 36px;
+        left: 18px;
+        color: var(--re-text-muted);
+        font-size: 12px;
+        font-weight: 600;
+        z-index: 100000;
+        background: rgba(0,0,0,0.2);
+        padding: 2px 6px;
+        border-radius: 8px;
+        pointer-events: none;
+      `;
+      document.body.appendChild(pingDisplayElement);
+    }
+    pingDisplayElement.textContent = `${pingMs} ms`;
+  }
+
   function resetPingTimer() {
     if (pingTimer) clearTimeout(pingTimer);
-
     setConnectionIndicator(true);
-
     pingTimer = setTimeout(() => {
       setConnectionIndicator(false);
     }, PING_TIMEOUT_MS);
+  }
+
+  function measurePing() {
+    const now = Date.now();
+    if (lastPingSentTime > 0) {
+      pingValue = now - lastPingSentTime;
+      updatePingDisplay(pingValue);
+    }
+    lastPingSentTime = 0;
+  }
+
+  function sendAutoBetIfNeeded() {
+    if (!autoBetEnabled || !game || typeof game.send !== 'function') return;
+    const betButtons = document.querySelectorAll('.game_turn_bet');
+    if (betButtons.length) {
+      for (const btn of betButtons) {
+        if (btn.textContent.trim() === String(autoBetValue)) {
+          btn.click();
+          return;
+        }
+      }
+    }
+    game.send({ action: 'trade_turn', bet: String(autoBetValue) });
+  }
+
+  function clearHighlights() {
+    document.querySelectorAll('.re-highlight-word').forEach(el => {
+      const parent = el.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(el.textContent), el);
+        parent.normalize();
+      }
+    });
+  }
+
+  function applyHighlightToProblem(words) {
+    if (!words.length) return;
+    const problemContainer = document.querySelector('.game_prob');
+    if (!problemContainer) return;
+    clearHighlights();
+    const regex = new RegExp(`\\b(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi');
+    const walker = document.createTreeWalker(problemContainer, NodeFilter.SHOW_TEXT, {
+      acceptNode: node => {
+        if (node.parentElement?.closest('.re-choice-button, .re-highlight-word, .game_answer, .game_prob_title')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach(node => {
+      const text = node.nodeValue;
+      if (!regex.test(text)) {
+        regex.lastIndex = 0;
+        return;
+      }
+      regex.lastIndex = 0;
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const before = text.slice(lastIndex, match.index);
+        if (before) fragment.appendChild(document.createTextNode(before));
+        const span = document.createElement('span');
+        span.className = 're-highlight-word';
+        span.textContent = match[0];
+        fragment.appendChild(span);
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      const parent = node.parentNode;
+      if (parent) {
+        parent.replaceChild(fragment, node);
+      }
+    });
+  }
+
+  function getCurrentUserId() {
+    if (window.user && window.user.id) return window.user.id;
+    const cookieMatch = document.cookie.match(/(?:^|;\s*)user_id=([^;]+)/);
+    if (cookieMatch) return parseInt(cookieMatch[1], 10);
+    return null;
+  }
+
+  function getOpponentId() {
+    if (game && game.opponent_id) return game.opponent_id;
+    if (game && game.coplayer_id) return game.coplayer_id;
+    if (game && game.coplayerId) return game.coplayerId;
+    return null;
+  }
+
+  function createSubjectSelect() {
+    const existing = document.querySelector('.re-subject-select');
+    if (existing) return existing;
+
+    const select = document.createElement('select');
+    select.className = 're-subject-select';
+    select.style.cssText = `
+      margin: 5px 10px;
+      padding: 8px 12px;
+      background: var(--re-input-bg);
+      border: 1px solid var(--re-input-border);
+      border-radius: 10px;
+      color: var(--re-text-main);
+      font-size: 14px;
+      cursor: pointer;
+    `;
+
+    const subjects = [
+      { value: 'math', label: 'Математика' },
+      { value: 'rus', label: 'Русский язык' },
+      { value: 'phys', label: 'Физика' },
+      { value: 'chem', label: 'Химия' },
+      { value: 'bio', label: 'Биология' },
+      { value: 'hist', label: 'История' },
+      { value: 'soc', label: 'Обществознание' },
+      { value: 'inf', label: 'Информатика' },
+      { value: 'geo', label: 'География' },
+      { value: 'eng', label: 'Английский' },
+      { value: 'ger', label: 'Немецкий' },
+      { value: 'fra', label: 'Французский' },
+      { value: 'spa', label: 'Испанский' },
+      { value: 'lit', label: 'Литература' }
+    ];
+
+    subjects.forEach(s => {
+      const option = document.createElement('option');
+      option.value = s.value;
+      option.textContent = s.label;
+      select.appendChild(option);
+    });
+
+    select.value = selectedSubject;
+    select.addEventListener('change', () => {
+      selectedSubject = select.value;
+      saveSelectedSubject(selectedSubject);
+    });
+
+    return select;
+  }
+
+  function injectSubjectSelect() {
+    const findButton = document.querySelector('.game_find_player');
+    if (!findButton) return;
+
+    const parent = findButton.parentNode;
+    const existing = parent.querySelector('.re-subject-select');
+    if (existing) return;
+
+    const select = createSubjectSelect();
+    parent.insertBefore(select, findButton);
+  }
+
+  function updateTimerWarning(countdownElement) {
+    if (!countdownElement) return;
+    const text = countdownElement.textContent || '';
+    const timeMatch = text.match(/(\d+):(\d+)/);
+    if (!timeMatch) return;
+
+    const minutes = parseInt(timeMatch[1], 10);
+    const seconds = parseInt(timeMatch[2], 10);
+    const totalSeconds = minutes * 60 + seconds;
+
+    countdownElement.classList.remove('re-timer-warning', 're-timer-critical');
+
+    if (totalSeconds <= 10 && totalSeconds > 0) {
+      countdownElement.classList.add('re-timer-critical');
+    } else if (totalSeconds <= 30 && totalSeconds > 10) {
+      countdownElement.classList.add('re-timer-warning');
+    }
   }
 
   function patchGameMessageHandler(gameInstance) {
@@ -491,6 +792,7 @@
 
     gameInstance.message_handler = (resp) => {
       if (resp?.function === 'ping') {
+        measurePing();
         resetPingTimer();
       }
 
@@ -508,6 +810,9 @@
         enhanceProblemAnswerUI();
         resetResultBadgeStates();
         tryAutofillRememberedAnswer(currentProblemFingerprint);
+        if (autoHighlightEnabled && highlightWords.length) {
+          applyHighlightToProblem(highlightWords);
+        }
       }
 
       if (resp?.function === 'my_result' && typeof resp.answer === 'string') {
@@ -521,6 +826,13 @@
       if (resp?.function === 'his_result' && typeof resp.right === 'boolean') {
         setResultBadgeState('.game_his_result', resp.right);
       }
+
+      if ((resp?.function === 'trade_init' || resp?.function === 'trade_state') && autoBetEnabled) {
+        const haveTurn = resp.have_turn === true || resp.have_turn === 1;
+        if (haveTurn) {
+          setTimeout(sendAutoBetIfNeeded, 100);
+        }
+      }
     };
   }
 
@@ -533,13 +845,16 @@
 
     gameInstance.send = (data) => {
       if (data?.action === 'give_answer') {
-        const normalizedAnswer = sanitizeAnswerForSubmit(data.answer);
         const answerInput = document.querySelector('.game_answer_inp');
-        if (answerInput) {
-          answerInput.value = normalizedAnswer;
-        }
+        const answer = answerInput ? sanitizeAnswerForSubmit(answerInput.value) : '';
+        return originalSend({ ...data, answer });
+      }
 
-        return originalSend({ ...data, answer: normalizedAnswer });
+      if (data?.action === 'find_player') {
+        const select = document.querySelector('.re-subject-select');
+        if (select) {
+          data.subject = select.value;
+        }
       }
 
       return originalSend(data);
@@ -548,9 +863,7 @@
 
   function syncChoiceButtonsWithInput(problemContainer, answerInput) {
     if (!problemContainer || !answerInput) return;
-
     const answer = String(answerInput.value ?? '');
-
     problemContainer.querySelectorAll('.re-choice-button').forEach((button) => {
       const choiceValue = button.dataset.choiceValue ?? '';
       if (containsChoiceValue(answer, choiceValue)) {
@@ -571,7 +884,6 @@
     button.addEventListener('click', () => {
       let nextAnswer = String(answerInput.value ?? '');
       const currentlySelected = button.classList.contains('is-selected');
-
       if (currentlySelected) {
         nextAnswer = removeChoiceValue(nextAnswer, choiceValue);
         button.classList.remove('is-selected');
@@ -583,7 +895,6 @@
         button.classList.add('is-selected');
         button.classList.remove('is-excluded');
       }
-
       answerInput.value = sortAnswerCharacters(nextAnswer);
       syncChoiceButtonsWithInput(problemContainer, answerInput);
     });
@@ -594,34 +905,27 @@
   function replaceChoiceMarkersWithButtons(problemContainer, answerInput) {
     const textNodes = [];
     const walker = document.createTreeWalker(problemContainer, NodeFilter.SHOW_TEXT);
-
     while (walker.nextNode()) {
       textNodes.push(walker.currentNode);
     }
-
     textNodes.forEach((textNode) => {
       const sourceText = textNode.nodeValue ?? '';
       CHOICE_MARKER_REGEX.lastIndex = 0;
       if (!CHOICE_MARKER_REGEX.test(sourceText)) return;
-
       const fragment = document.createDocumentFragment();
       let cursor = 0;
-
       sourceText.replace(CHOICE_MARKER_REGEX, (fullMatch, choiceRaw, offset) => {
         if (offset > cursor) {
           fragment.appendChild(document.createTextNode(sourceText.slice(cursor, offset)));
         }
-
         const choiceValue = String(choiceRaw ?? '').trim();
         fragment.appendChild(buildChoiceButton(choiceValue, answerInput, problemContainer));
         cursor = offset + fullMatch.length;
         return fullMatch;
       });
-
       if (cursor < sourceText.length) {
         fragment.appendChild(document.createTextNode(sourceText.slice(cursor)));
       }
-
       if (textNode.parentNode) {
         textNode.parentNode.replaceChild(fragment, textNode);
       }
@@ -632,16 +936,13 @@
     const problemContainer = document.querySelector('.game_prob');
     const answerInput = document.querySelector('.game_answer_inp');
     if (!problemContainer || !answerInput) return;
-
     replaceChoiceMarkersWithButtons(problemContainer, answerInput);
-
     if (!answerInput.dataset.reChoiceSyncBound) {
       answerInput.dataset.reChoiceSyncBound = '1';
       answerInput.addEventListener('input', () => {
         syncChoiceButtonsWithInput(problemContainer, answerInput);
       });
     }
-
     syncChoiceButtonsWithInput(problemContainer, answerInput);
   }
 
@@ -650,9 +951,7 @@
       const submitButton = event.target instanceof Element
         ? event.target.closest('.game_answer_send')
         : null;
-
       if (!submitButton) return;
-
       setTimeout(() => {
         submitButton.disabled = false;
       }, 120);
@@ -660,12 +959,28 @@
 
     const observer = new MutationObserver(() => {
       const answerBtn = document.querySelector('.game_answer_send');
-      if (answerBtn) {
-        answerBtn.disabled = false;
+      if (answerBtn) answerBtn.disabled = false;
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function observeTimer() {
+    const observer = new MutationObserver(() => {
+      const timerElement = document.querySelector('.game_countdown');
+      if (timerElement) {
+        updateTimerWarning(timerElement);
       }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    const timerContainer = document.querySelector('.game_div');
+    if (timerContainer) {
+      observer.observe(timerContainer, { childList: true, subtree: true, characterData: true });
+    }
+
+    setInterval(() => {
+      const timerElement = document.querySelector('.game_countdown');
+      if (timerElement) updateTimerWarning(timerElement);
+    }, 500);
   }
 
   function applySiteStyles() {
@@ -735,6 +1050,11 @@
         color: var(--re-text-main);
       }
 
+      .game_gear,
+      .ya-share2__container {
+        display: none !important;
+      }
+
       .game_div {
         width: min(1000px, calc((100vw - 24px) / var(--re-game-reduce-factor))) !important;
         max-width: min(1000px, calc((100vw - 24px) / var(--re-game-reduce-factor))) !important;
@@ -773,7 +1093,7 @@
         right: 24px !important;
         top: 84px !important;
         bottom: 76px !important;
-        padding: 18px 20px !important;
+        padding: 18px 20px 50px 20px !important;
       }
 
       .game_prob_title {
@@ -948,6 +1268,43 @@
         color: #fff6f8;
       }
 
+      .re-highlight-word {
+        background: rgba(255, 235, 120, 0.3);
+        color: #ffea8c;
+        font-weight: 700;
+        padding: 1px 2px;
+        border-radius: 4px;
+        border-bottom: 1px solid #ffd966;
+      }
+
+      html[data-re-theme='light'] .re-highlight-word {
+        background: rgba(255, 210, 60, 0.3);
+        color: #8b5e00;
+        border-bottom-color: #e6a800;
+      }
+
+      .game_countdown.re-timer-warning {
+        color: #ffb347 !important;
+        font-weight: 800;
+        animation: pulse-warning 1s infinite;
+      }
+
+      .game_countdown.re-timer-critical {
+        color: #ff6b6b !important;
+        font-weight: 900;
+        animation: pulse-critical 0.5s infinite;
+      }
+
+      @keyframes pulse-warning {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+
+      @keyframes pulse-critical {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(1.05); }
+      }
+
       .game_hist_back,
       .game_high_back {
         margin: 0 !important;
@@ -975,11 +1332,9 @@
       .game_hist_score_m { color: #ff94a9 !important; }
       .game_hist_ans_diff { color: inherit !important; }
 
-      .game_gear,
-      .game_star,
-      .game_note {
-        color: var(--re-gear-color) !important;
-        filter: brightness(1.14);
+      select[name="subject"],
+      select[class*="subject"]:not(.re-subject-select) {
+        display: none !important;
       }
 
       @media (max-width: 900px) {
@@ -1000,7 +1355,7 @@
           right: 14px !important;
           top: 74px !important;
           bottom: 84px !important;
-          padding: 14px !important;
+          padding: 14px 14px 50px 14px !important;
         }
 
         .game_answer {
@@ -1084,7 +1439,7 @@
         }
 
         .ReshEge_Helper_menu_toggle.is-open {
-          transform: translateY(-50%) translateX(calc(-1 * var(--re-drawer-width) - 14px));
+          transform: translateY(-50%) translateX(calc(-1 * var(--re-drawer-width) - 28px));
         }
 
         .ReshEge_Helper_menu_drawer {
@@ -1357,6 +1712,19 @@
           transition: background-color 0.28s ease;
         }
 
+        #re_ping_display {
+          font-family: 'Segoe UI', monospace;
+        }
+
+        .menu-footer {
+          margin-top: 20px;
+          padding-top: 12px;
+          border-top: 1px solid rgba(181, 143, 255, 0.2);
+          text-align: center;
+          font-size: 12px;
+          color: var(--re-text-muted);
+        }
+
         html[data-re-theme='light'] .ReshEge_Helper_menu_toggle {
           background: linear-gradient(135deg, #5f86ff 0%, #53b3d3 100%);
           color: #ffffff;
@@ -1479,6 +1847,59 @@
             transform: translateY(-50%);
           }
         }
+
+        .bet-button {
+          display: inline-block;
+          width: 60px;
+          margin: 6px;
+          padding: 12px 0;
+          background: rgba(100, 80, 150, 0.4);
+          border: 2px solid rgba(181, 143, 255, 0.5);
+          border-radius: 12px;
+          font-size: 18px;
+          font-weight: bold;
+          color: #f0e4ff;
+          cursor: pointer;
+          text-align: center;
+          transition: all 0.15s;
+        }
+
+        .bet-button.selected {
+          background: #2e8b57;
+          border-color: #7cfc00;
+          color: white;
+          box-shadow: 0 0 12px #7cfc00;
+        }
+
+        .bet-button:hover {
+          filter: brightness(1.1);
+        }
+
+        .highlight-input {
+          width: 100%;
+          padding: 12px;
+          margin: 15px 0;
+          background: var(--re-input-bg);
+          border: 1px solid var(--re-input-border);
+          border-radius: 12px;
+          color: var(--re-text-main);
+          font-size: 14px;
+        }
+
+        .toggle-button {
+          padding: 12px 24px;
+          margin-right: 10px;
+          background: var(--re-button-gradient);
+          border: none;
+          border-radius: 12px;
+          color: white;
+          font-weight: bold;
+          cursor: pointer;
+        }
+
+        .toggle-button.off {
+          background: var(--re-button-disabled-gradient);
+        }
       `);
     }
 
@@ -1513,10 +1934,8 @@
 
       document.addEventListener('click', (event) => {
         if (!this.drawer.classList.contains('is-open')) return;
-
         const clickInsideDrawer = this.drawer.contains(event.target);
         const clickOnToggle = this.toggleBtn.contains(event.target);
-
         if (!clickInsideDrawer && !clickOnToggle) {
           this.closeDrawer();
         }
@@ -1552,17 +1971,13 @@
     updateThemeToggleButton() {
       const themeButton = this.menuButtonsMap.get('re_theme_toggle');
       if (!themeButton) return;
-
-      themeButton.label = currentTheme === THEME.DARK
-        ? 'Тема: тёмная'
-        : 'Тема: светлая';
+      themeButton.label = currentTheme === THEME.DARK ? 'Тема: тёмная' : 'Тема: светлая';
       themeButton.icon = currentTheme === THEME.DARK ? '🌙' : '☀️';
     }
 
     updateAutoAnswerButton() {
       const autoButton = this.menuButtonsMap.get('re_auto_answer');
       if (!autoButton) return;
-
       autoButton.label = autoAnswerEnabled ? 'Автоответчик: ВКЛ' : 'Автоответчик: ВЫКЛ';
       autoButton.icon = autoAnswerEnabled ? '🟢' : '🔴';
       autoButton.className = autoAnswerEnabled ? 'auto-answer-on' : 'auto-answer-off';
@@ -1593,6 +2008,20 @@
           this.updateAutoAnswerButton();
           this.renderMainMenu();
         }
+      });
+
+      this.registerMenuButton({
+        id: 're_auto_bet',
+        label: 'Автоставка',
+        icon: '🎲',
+        onClick: () => this.showAutoBetPanel()
+      });
+
+      this.registerMenuButton({
+        id: 're_auto_highlight',
+        label: 'Автовыделение',
+        icon: '🔍',
+        onClick: () => this.showAutoHighlightPanel()
       });
 
       this.registerMenuButton({
@@ -1631,15 +2060,18 @@
     renderView(title, bodyHtml, options = {}) {
       const {
         showCloseButton = true,
-        closeReturnsToMain = false
+        closeReturnsToMain = true,
+        showFooter = false
       } = options;
       const safeTitle = escapeHtml(title);
+      const footerHtml = showFooter ? '<div class="menu-footer"><a href="https://github.com/Danex-Exe" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;">by Danex-Exe</a></div>' : '';
       this.contentDiv.innerHTML = `
         <div class="ReshEge_Helper_view_header">
           <h3 class="ReshEge_Helper_drawer_title">${safeTitle}</h3>
           ${showCloseButton ? '<button class="ReshEge_Helper_close_button" type="button" id="re_close_btn" aria-label="Закрыть">×</button>' : ''}
         </div>
         <div>${bodyHtml}</div>
+        ${footerHtml}
       `;
 
       const closeBtn = this.contentDiv.querySelector('#re_close_btn');
@@ -1648,9 +2080,9 @@
           event.stopPropagation();
           if (closeReturnsToMain) {
             this.renderMainMenu();
-            return;
+          } else {
+            this.closeDrawer();
           }
-          this.closeDrawer();
         });
       }
     }
@@ -1669,16 +2101,14 @@
         `;
       }).join('');
 
-      this.renderView('Меню', buttonsHtml, { showCloseButton: false });
+      this.renderView(`${SCRIPT_META.title} ${SCRIPT_META.version}`, buttonsHtml, { showCloseButton: false, showFooter: true });
 
       this.contentDiv.querySelectorAll('[data-menu-action]').forEach((buttonElement) => {
         buttonElement.addEventListener('click', (event) => {
           event.stopPropagation();
-
           const actionId = buttonElement.getAttribute('data-menu-action');
           const menuButton = this.menuButtonsMap.get(actionId);
           if (!menuButton) return;
-
           try {
             menuButton.onClick({ menu: this, game: this.game });
           } catch (error) {
@@ -1688,9 +2118,102 @@
       });
     }
 
+    showAutoBetPanel() {
+      this.currentView = VIEW.AUTO_BET;
+      this.renderAutoBetPanel();
+    }
+
+    renderAutoBetPanel() {
+      const betOptions = [10, 20, 30, 40, 50];
+      const betButtonsHtml = betOptions.map(bet => {
+        const selected = autoBetEnabled && autoBetValue === bet ? 'selected' : '';
+        return `<div class="bet-button ${selected}" data-bet="${bet}">${bet}</div>`;
+      }).join('');
+
+      const bodyHtml = `
+        <div style="padding: 10px;">
+          <p style="margin-bottom: 12px;">Выберите ставку для автоставки. Если ставка выбрана, она будет автоматически делаться при вашем ходе.</p>
+          <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 20px 0;">
+            ${betButtonsHtml}
+          </div>
+          <p style="font-size: 12px; color: var(--re-text-muted);">Нажмите на ставку, чтобы включить автоставку. Повторное нажатие на выбранную ставку отключит автоставку.</p>
+        </div>
+      `;
+
+      this.renderView('🎲 Автоставка', bodyHtml, { closeReturnsToMain: true });
+
+      this.contentDiv.querySelectorAll('.bet-button').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const betValue = parseInt(e.currentTarget.dataset.bet, 10);
+          if (autoBetEnabled && autoBetValue === betValue) {
+            autoBetEnabled = false;
+          } else {
+            autoBetEnabled = true;
+            autoBetValue = betValue;
+          }
+          saveAutoBetPreference();
+          this.renderAutoBetPanel();
+        });
+      });
+    }
+
+    showAutoHighlightPanel() {
+      this.currentView = VIEW.AUTO_HIGHLIGHT;
+      this.renderAutoHighlightPanel();
+    }
+
+    renderAutoHighlightPanel() {
+      const wordsString = highlightWords.join(', ');
+      const toggleText = autoHighlightEnabled ? 'Выключить' : 'Включить';
+      const toggleClass = autoHighlightEnabled ? '' : 'off';
+
+      const bodyHtml = `
+        <div style="padding: 10px;">
+          <p>Введите слова через запятую, которые нужно подсвечивать в тексте задания:</p>
+          <input type="text" id="highlight-words-input" class="highlight-input" placeholder="например: имя, фамилия, год" value="${escapeHtml(wordsString)}">
+          <div style="display: flex; margin-top: 20px;">
+            <button id="toggle-highlight" class="toggle-button ${toggleClass}">${toggleText}</button>
+            <button id="save-words" class="toggle-button">Сохранить список</button>
+          </div>
+          <p style="font-size: 12px; margin-top: 20px;">Подсветка работает только когда отображается текст задания.</p>
+        </div>
+      `;
+
+      this.renderView('🔍 Автовыделение', bodyHtml, { closeReturnsToMain: true });
+
+      document.getElementById('toggle-highlight').addEventListener('click', (e) => {
+        e.stopPropagation();
+        autoHighlightEnabled = !autoHighlightEnabled;
+        saveAutoHighlightPreference();
+        if (autoHighlightEnabled && highlightWords.length) {
+          applyHighlightToProblem(highlightWords);
+        } else {
+          clearHighlights();
+        }
+        this.renderAutoHighlightPanel();
+      });
+
+      document.getElementById('save-words').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const input = document.getElementById('highlight-words-input');
+        const raw = input.value;
+        const words = raw.split(',').map(w => w.trim()).filter(w => w.length > 0);
+        highlightWords = words;
+        saveAutoHighlightPreference();
+        if (autoHighlightEnabled) {
+          if (words.length) {
+            applyHighlightToProblem(words);
+          } else {
+            clearHighlights();
+          }
+        }
+        this.renderAutoHighlightPanel();
+      });
+    }
+
     requestData(action, waitingType) {
       if (!this.game || typeof this.game.send !== 'function') return;
-
       this.waitingFor = waitingType;
       this.game.send({ action });
     }
@@ -1720,24 +2243,20 @@
 
     showLeaderboard() {
       this.currentView = VIEW.LEADERBOARD;
-
       if (this.highscoreData) {
         this.renderHighscore();
         return;
       }
-
       this.renderView('🏆 Таблица лидеров', '<p>Загрузка...</p>', { closeReturnsToMain: true });
       this.requestData('get_highscore', VIEW.LEADERBOARD);
     }
 
     showHistory() {
       this.currentView = VIEW.HISTORY;
-
       if (this.historyData) {
         this.renderHistory();
         return;
       }
-
       this.renderView('🧾 История матчей', '<p>Загрузка...</p>', { closeReturnsToMain: true });
       this.requestData('get_history', VIEW.HISTORY);
     }
@@ -1748,7 +2267,6 @@
         const number = escapeHtml(item?.num ?? '');
         const name = escapeHtml(item?.name ?? '');
         const score = escapeHtml(item?.score ?? '');
-
         return `
           <tr class="${rowClass}">
             <td>${number}</td>
@@ -1790,7 +2308,6 @@
         const answer = escapeHtml(error?.answer ?? '');
         const scoreDiffRaw = Number(error?.score_diff ?? 0);
         const scoreDiff = `${scoreDiffRaw > 0 ? '+' : ''}${scoreDiffRaw}`;
-
         return `
           <div class="error-item">
             <a href="https://${subj}-ege.sdamgia.ru/problem?id=${probId}" target="_blank" rel="noopener noreferrer" class="error-link">#${probId}</a>
@@ -1805,16 +2322,26 @@
       `;
     }
 
-    renderHistory() {
+    async renderHistory() {
       const games = safeArray(this.historyData?.games);
       const totalGames = this.historyData?.count ?? games.length;
       const totalScore = this.game?.score_total ?? '—';
+
+      const leaderboardData = await getLeaderboardData();
 
       const matchesHtml = games.map((match, index) => {
         const score = Number(match?.score ?? 0);
         const scoreClass = score >= 0 ? '' : 'negative';
         const scoreText = `${score >= 0 ? '+' : ''}${score}`;
-        const opponentName = getOpponentDisplayName(match);
+        let opponentName = getOpponentDisplayName(match);
+
+        const opponentId = match?.coplayer_id || match?.opponent_id || match?.coplayerId;
+        if (opponentId && leaderboardData) {
+          const rankInfo = getOpponentRankInfo(opponentId, leaderboardData);
+          if (rankInfo) {
+            opponentName = `Топ-${rankInfo.rank} ${opponentName} (${rankInfo.score} очк.)`;
+          }
+        }
 
         return `
           <div class="match-item">
@@ -1848,9 +2375,7 @@
 
   function addExternalMenuButton(buttonConfig) {
     queuedExternalButtons.push(buttonConfig);
-
     if (!menuUI) return;
-
     const added = menuUI.registerMenuButton(buttonConfig);
     if (added && menuUI.currentView === VIEW.MAIN) {
       menuUI.renderMainMenu();
@@ -1872,6 +2397,9 @@
     applyTheme(currentTheme, false);
     answerCache = loadAnswerCache();
     autoAnswerEnabled = loadAutoAnswerPreference();
+    loadAutoBetPreference();
+    loadAutoHighlightPreference();
+    selectedSubject = loadSelectedSubject();
     exposePublicApi();
     applySiteStyles();
 
@@ -1890,6 +2418,13 @@
     patchGameSend(gameInstance);
     patchGameMessageHandler(gameInstance);
     unlockAnswerButton();
+    observeTimer();
+
+    const observer = new MutationObserver(() => {
+      injectSubjectSelect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    injectSubjectSelect();
 
     console.log(`[${SCRIPT_META.title}] Инициализировано (${SCRIPT_META.version}).`);
   }
