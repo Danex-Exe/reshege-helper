@@ -815,8 +815,8 @@
         }
       }
 
-      if (resp?.function === 'my_result' && typeof resp.answer === 'string') {
-        rememberAnswerForProblem(currentProblemFingerprint, resp.answer);
+      if (resp?.function === 'my_result' && typeof resp.answer === 'string' && resp.right === true) {
+          rememberAnswerForProblem(currentProblemFingerprint, resp.answer);
       }
 
       if (resp?.function === 'my_result' && typeof resp.right === 'boolean') {
