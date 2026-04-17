@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         ReshEge-Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.3
 // @description  Удобное меню для игры «Держи оборону» с историей матчей, таблицей лидеров и расширенной статистикой.
 // @author       github.com/Danex-Exe
 // @match        https://ege.sdamgia.ru/game.htm
@@ -15,7 +15,7 @@
 
   const SCRIPT_META = {
     title: 'ReshEge-Helper',
-    version: 'v1.0.2'
+    version: 'v1.0.3'
   };
 
   const VIEW = {
