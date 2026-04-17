@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         ReshEge-Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Удобное меню для игры «Держи оборону» с историей матчей, таблицей лидеров и расширенной статистикой.
 // @author       github.com/Danex-Exe
 // @match        https://ege.sdamgia.ru/game.htm
@@ -15,7 +15,7 @@
 
   const SCRIPT_META = {
     title: 'ReshEge-Helper',
-    version: 'v1.0.3'
+    version: 'v1.0.4'
   };
 
   const VIEW = {
@@ -645,24 +645,50 @@
     });
   }
 
+  function wildcardToRegexPattern(word) {
+    const letterClass = '[а-яА-ЯёЁa-zA-Z]';
+    let pattern = '';
+    for (let i = 0; i < word.length; i++) {
+      const ch = word[i];
+      if (ch === '*') {
+        pattern += letterClass + '*';
+      } else if (ch === '?') {
+        pattern += letterClass;
+      } else {
+        pattern += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+    }
+    return pattern;
+  }
+
   function applyHighlightToProblem(words) {
-    if (!words.length) return;
+    if (!words || !words.length) return;
     const problemContainer = document.querySelector('.game_prob');
     if (!problemContainer) return;
     clearHighlights();
-    const regex = new RegExp(`\\b(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi');
+
+    const patterns = words.map(w => wildcardToRegexPattern(w));
+    const wordBoundary = '(?<![а-яА-ЯёЁa-zA-Z])';
+    const wordEndBoundary = '(?![а-яА-ЯёЁa-zA-Z])';
+    const pattern = wordBoundary + '(' + patterns.join('|') + ')' + wordEndBoundary;
+    const regex = new RegExp(pattern, 'gi');
+
     const walker = document.createTreeWalker(problemContainer, NodeFilter.SHOW_TEXT, {
       acceptNode: node => {
-        if (node.parentElement?.closest('.re-choice-button, .re-highlight-word, .game_answer, .game_prob_title')) {
+        const parent = node.parentElement;
+        if (parent && parent.closest('.re-choice-button, .game_answer, .game_prob_title')) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
       }
     });
+
     const textNodes = [];
     while (walker.nextNode()) textNodes.push(walker.currentNode);
+
     textNodes.forEach(node => {
-      const text = node.nodeValue;
+      let text = node.nodeValue;
+      text = text.replace(/\u00AD/g, '');
       if (!regex.test(text)) {
         regex.lastIndex = 0;
         return;
@@ -2425,6 +2451,13 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
     injectSubjectSelect();
+
+    if (autoHighlightEnabled && highlightWords.length) {
+      const existingProblem = document.querySelector('.game_prob');
+      if (existingProblem) {
+        applyHighlightToProblem(highlightWords);
+      }
+    }
 
     console.log(`[${SCRIPT_META.title}] Инициализировано (${SCRIPT_META.version}).`);
   }
