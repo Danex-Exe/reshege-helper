@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ReshEge-Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.0
   // @description  ReshEge-Helper - Меню для игры «Держи оборону» с историей матчей, таблицей лидеров, кастомным автоответчиком, поиском ответов, калькулятором и шпаргалками.
 // @author       github.com/Danex-Exe
 // @match        https://ege.sdamgia.ru/game.htm
@@ -15,7 +15,7 @@
 
   const SCRIPT_META = {
     title: 'ReshEge-Helper',
-    version: 'v1.1.0'
+    version: 'v1.2.0'
   };
 
   const VIEW = {
@@ -25,22 +25,23 @@
     AUTO_BET: 'auto_bet',
     AUTO_HIGHLIGHT: 'auto_highlight',
     ANSWERS_MANAGER: 'answers_manager',
-    ANSWERS_LIST: 'answers_list',
-    ANSWER_EDITOR: 'answer_editor',
     CALCULATOR: 'calculator',
     FORMULAS: 'formulas',
-    SEARCH_ANSWERS: 'search_answers',
-    SETTINGS: 'settings',
     THEMES: 'themes'
   };
   const THEME = {
     DARK: 'dark',
-    LIGHT: 'light'
+    LIGHT: 'light',
+    MIDNIGHT: 'midnight',
+    OCEAN: 'ocean',
+    SUNSET: 'sunset',
+    FOREST: 'forest',
+    GRAPHITE: 'graphite'
   };
 
   const PING_TIMEOUT_MS = 10000;
   const CHOICE_MARKER_REGEX = /\(\s*(\d+)\)/g;
-  const THEME_STORAGE_KEY = 're_helper_theme_v1';
+  const THEME_STORAGE_KEY = 're_helper_theme_v2';
   const ANSWER_CACHE_STORAGE_KEY = 're_helper_answer_cache_v1';
   const AUTO_ANSWER_STORAGE_KEY = 're_helper_auto_answer_v1';
   const AUTO_BET_STORAGE_KEY = 're_helper_auto_bet_v1';
@@ -48,6 +49,215 @@
   const SUBJECT_STORAGE_KEY = 're_helper_selected_subject_v1';
   const CUSTOM_ANSWERS_STORAGE_KEY = 're_helper_custom_answers_v2';
   const AUTO_SEND_STORAGE_KEY = 're_helper_auto_send_v1';
+  const SEARCH_ANSWER_ENABLED_KEY = 're_helper_search_answer_v1';
+
+  const THEME_DEFINITIONS = {
+    dark: {
+      label: 'Тёмная',
+      vars: {
+        '--re-bg-main': '#120f1f',
+        '--re-bg-glow-a': 'rgba(181, 143, 255, 0.20)',
+        '--re-bg-glow-b': 'rgba(127, 104, 255, 0.12)',
+        '--re-bg-card': '#1f1b31',
+        '--re-bg-soft': '#2a2540',
+        '--re-accent': '#b58fff',
+        '--re-accent-2': '#7f68ff',
+        '--re-text-main': '#f4edff',
+        '--re-text-muted': '#b8a8d6',
+        '--re-game-surface': 'linear-gradient(160deg, #26213a 0%, #1b162a 60%, #171223 100%)',
+        '--re-game-surface-border': 'rgba(181, 143, 255, 0.42)',
+        '--re-game-prob-surface': 'rgba(50, 43, 77, 0.55)',
+        '--re-game-prob-border': 'rgba(181, 143, 255, 0.30)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #453061 0%, #2f2242 100%)',
+        '--re-player-found-border': 'rgba(191, 155, 255, 0.65)',
+        '--re-button-gradient': 'linear-gradient(135deg, #a77dff 0%, #6f62ff 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #5f5678 0%, #4a4363 100%)',
+        '--re-input-bg': 'rgba(20, 17, 35, 0.88)',
+        '--re-input-border': 'rgba(181, 143, 255, 0.55)',
+        '--re-turn-log-color': '#cfbff0',
+        '--re-choice-bg': 'rgba(44, 33, 68, 0.92)',
+        '--re-choice-border': 'rgba(181, 143, 255, 0.5)',
+        '--re-gear-color': '#f3e8ff'
+      }
+    },
+    light: {
+      label: 'Светлая',
+      vars: {
+        '--re-bg-main': '#eaf1ff',
+        '--re-bg-glow-a': 'rgba(90, 133, 255, 0.24)',
+        '--re-bg-glow-b': 'rgba(91, 191, 170, 0.22)',
+        '--re-bg-card': '#f0f5ff',
+        '--re-bg-soft': '#dce8ff',
+        '--re-accent': '#5f86ff',
+        '--re-accent-2': '#53b3d3',
+        '--re-text-main': '#1a2f47',
+        '--re-text-muted': '#4d6382',
+        '--re-game-surface': 'linear-gradient(160deg, #ffffff 0%, #eef4ff 58%, #e6efff 100%)',
+        '--re-game-surface-border': 'rgba(112, 145, 205, 0.44)',
+        '--re-game-prob-surface': 'rgba(255, 255, 255, 0.84)',
+        '--re-game-prob-border': 'rgba(126, 154, 214, 0.45)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #edf6ff 0%, #dcecff 100%)',
+        '--re-player-found-border': 'rgba(99, 141, 215, 0.5)',
+        '--re-button-gradient': 'linear-gradient(135deg, #5f86ff 0%, #53b3d3 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #b9c5de 0%, #a7b8d5 100%)',
+        '--re-input-bg': 'rgba(255, 255, 255, 0.95)',
+        '--re-input-border': 'rgba(95, 134, 255, 0.42)',
+        '--re-turn-log-color': '#1e4d8d',
+        '--re-choice-bg': 'rgba(235, 243, 255, 0.92)',
+        '--re-choice-border': 'rgba(111, 142, 202, 0.55)',
+        '--re-gear-color': '#2f4f7a'
+      }
+    },
+    midnight: {
+      label: 'Полночь',
+      vars: {
+        '--re-bg-main': '#0a0a14',
+        '--re-bg-glow-a': 'rgba(60, 80, 200, 0.15)',
+        '--re-bg-glow-b': 'rgba(20, 40, 120, 0.12)',
+        '--re-bg-card': '#12121f',
+        '--re-bg-soft': '#1a1a2e',
+        '--re-accent': '#4a6fff',
+        '--re-accent-2': '#2a4aff',
+        '--re-text-main': '#e8ecff',
+        '--re-text-muted': '#8898c8',
+        '--re-game-surface': 'linear-gradient(160deg, #141428 0%, #0e0e1e 60%, #0a0a14 100%)',
+        '--re-game-surface-border': 'rgba(74, 111, 255, 0.35)',
+        '--re-game-prob-surface': 'rgba(30, 30, 55, 0.55)',
+        '--re-game-prob-border': 'rgba(74, 111, 255, 0.25)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #1e2040 0%, #141430 100%)',
+        '--re-player-found-border': 'rgba(74, 111, 255, 0.5)',
+        '--re-button-gradient': 'linear-gradient(135deg, #4a6fff 0%, #2a4aff 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #3a3a5a 0%, #2a2a48 100%)',
+        '--re-input-bg': 'rgba(10, 10, 20, 0.88)',
+        '--re-input-border': 'rgba(74, 111, 255, 0.45)',
+        '--re-turn-log-color': '#a8c0ff',
+        '--re-choice-bg': 'rgba(30, 30, 55, 0.92)',
+        '--re-choice-border': 'rgba(74, 111, 255, 0.5)',
+        '--re-gear-color': '#c8d4ff'
+      }
+    },
+    ocean: {
+      label: 'Океан',
+      vars: {
+        '--re-bg-main': '#0d1b2a',
+        '--re-bg-glow-a': 'rgba(0, 150, 200, 0.15)',
+        '--re-bg-glow-b': 'rgba(0, 100, 150, 0.12)',
+        '--re-bg-card': '#14202e',
+        '--re-bg-soft': '#1a2a3e',
+        '--re-accent': '#00b4d8',
+        '--re-accent-2': '#0096c7',
+        '--re-text-main': '#caf0f8',
+        '--re-text-muted': '#90e0ef',
+        '--re-game-surface': 'linear-gradient(160deg, #1b2838 0%, #14202e 60%, #0d1b2a 100%)',
+        '--re-game-surface-border': 'rgba(0, 180, 216, 0.35)',
+        '--re-game-prob-surface': 'rgba(20, 40, 60, 0.55)',
+        '--re-game-prob-border': 'rgba(0, 180, 216, 0.25)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #1e3048 0%, #142030 100%)',
+        '--re-player-found-border': 'rgba(0, 180, 216, 0.5)',
+        '--re-button-gradient': 'linear-gradient(135deg, #00b4d8 0%, #0096c7 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #2a4050 0%, #1e3040 100%)',
+        '--re-input-bg': 'rgba(10, 25, 40, 0.88)',
+        '--re-input-border': 'rgba(0, 180, 216, 0.45)',
+        '--re-turn-log-color': '#90e0ef',
+        '--re-choice-bg': 'rgba(20, 40, 60, 0.92)',
+        '--re-choice-border': 'rgba(0, 180, 216, 0.5)',
+        '--re-gear-color': '#caf0f8'
+      }
+    },
+    sunset: {
+      label: 'Закат',
+      vars: {
+        '--re-bg-main': '#1a0a14',
+        '--re-bg-glow-a': 'rgba(255, 100, 80, 0.15)',
+        '--re-bg-glow-b': 'rgba(200, 60, 120, 0.12)',
+        '--re-bg-card': '#2a1420',
+        '--re-bg-soft': '#3e1a2a',
+        '--re-accent': '#ff6b6b',
+        '--re-accent-2': '#ff8e8e',
+        '--re-text-main': '#fff0f0',
+        '--re-text-muted': '#d4a0a0',
+        '--re-game-surface': 'linear-gradient(160deg, #3a1a28 0%, #2a1420 60%, #1a0a14 100%)',
+        '--re-game-surface-border': 'rgba(255, 107, 107, 0.35)',
+        '--re-game-prob-surface': 'rgba(60, 30, 40, 0.55)',
+        '--re-game-prob-border': 'rgba(255, 107, 107, 0.25)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #4a2030 0%, #301820 100%)',
+        '--re-player-found-border': 'rgba(255, 107, 107, 0.5)',
+        '--re-button-gradient': 'linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #5a3040 0%, #4a2030 100%)',
+        '--re-input-bg': 'rgba(40, 15, 25, 0.88)',
+        '--re-input-border': 'rgba(255, 107, 107, 0.45)',
+        '--re-turn-log-color': '#ffb0b0',
+        '--re-choice-bg': 'rgba(60, 30, 40, 0.92)',
+        '--re-choice-border': 'rgba(255, 107, 107, 0.5)',
+        '--re-gear-color': '#fff0f0'
+      }
+    },
+    forest: {
+      label: 'Лес',
+      vars: {
+        '--re-bg-main': '#0a1a0a',
+        '--re-bg-glow-a': 'rgba(50, 200, 100, 0.15)',
+        '--re-bg-glow-b': 'rgba(30, 150, 80, 0.12)',
+        '--re-bg-card': '#142814',
+        '--re-bg-soft': '#1e3a1e',
+        '--re-accent': '#4ade80',
+        '--re-accent-2': '#22c55e',
+        '--re-text-main': '#dcfce7',
+        '--re-text-muted': '#a0d4a0',
+        '--re-game-surface': 'linear-gradient(160deg, #1e3820 0%, #142814 60%, #0a1a0a 100%)',
+        '--re-game-surface-border': 'rgba(74, 222, 128, 0.35)',
+        '--re-game-prob-surface': 'rgba(30, 50, 35, 0.55)',
+        '--re-game-prob-border': 'rgba(74, 222, 128, 0.25)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #204020 0%, #142814 100%)',
+        '--re-player-found-border': 'rgba(74, 222, 128, 0.5)',
+        '--re-button-gradient': 'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #3a5030 0%, #2a3a20 100%)',
+        '--re-input-bg': 'rgba(15, 30, 15, 0.88)',
+        '--re-input-border': 'rgba(74, 222, 128, 0.45)',
+        '--re-turn-log-color': '#b0e8b0',
+        '--re-choice-bg': 'rgba(30, 50, 35, 0.92)',
+        '--re-choice-border': 'rgba(74, 222, 128, 0.5)',
+        '--re-gear-color': '#dcfce7'
+      }
+    },
+    graphite: {
+      label: 'Графит',
+      vars: {
+        '--re-bg-main': '#e8e8e8',
+        '--re-bg-glow-a': 'rgba(100, 100, 120, 0.15)',
+        '--re-bg-glow-b': 'rgba(80, 80, 100, 0.12)',
+        '--re-bg-card': '#f5f5f5',
+        '--re-bg-soft': '#dcdcdc',
+        '--re-accent': '#6b7280',
+        '--re-accent-2': '#4b5563',
+        '--re-text-main': '#1f2937',
+        '--re-text-muted': '#6b7280',
+        '--re-game-surface': 'linear-gradient(160deg, #fafafa 0%, #f0f0f0 58%, #e8e8e8 100%)',
+        '--re-game-surface-border': 'rgba(107, 114, 128, 0.44)',
+        '--re-game-prob-surface': 'rgba(255, 255, 255, 0.84)',
+        '--re-game-prob-border': 'rgba(107, 114, 128, 0.35)',
+        '--re-player-found-surface': 'linear-gradient(145deg, #f8f8f8 0%, #f0f0f0 100%)',
+        '--re-player-found-border': 'rgba(107, 114, 128, 0.4)',
+        '--re-button-gradient': 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+        '--re-button-text': '#ffffff',
+        '--re-button-disabled-gradient': 'linear-gradient(135deg, #d1d5db 0%, #c0c4cc 100%)',
+        '--re-input-bg': 'rgba(255, 255, 255, 0.95)',
+        '--re-input-border': 'rgba(107, 114, 128, 0.42)',
+        '--re-turn-log-color': '#374151',
+        '--re-choice-bg': 'rgba(245, 245, 245, 0.92)',
+        '--re-choice-border': 'rgba(107, 114, 128, 0.55)',
+        '--re-gear-color': '#1f2937'
+      }
+    }
+  };
+
+  const ALL_THEMES = Object.entries(THEME_DEFINITIONS).map(([key, val]) => ({ value: key, label: val.label }));
   const TOOLS_THEME_STORAGE_KEY = 're_helper_tools_theme_v1';
   const MAX_ANSWER_CACHE_ENTRIES = 500;
   const SUBJECTS = ['math', 'rus', 'phys', 'chem', 'bio', 'hist', 'soc', 'inf', 'geo', 'eng', 'ger', 'fra', 'spa', 'lit', 'mateg'];
@@ -81,6 +291,9 @@
   let autoSendTimer = null;
   let autoBetTimer = null;
   let selectedSubject = 'mathprof';
+  let searchStartTime = null;
+  let searchTimerInterval = null;
+  let searchAnswerEnabled = false;
   const queuedExternalButtons = [...EXTRA_MENU_BUTTONS];
 
   function safeArray(value) {
@@ -101,15 +314,15 @@
   }
 
   function isValidTheme(theme) {
-    return theme === THEME.DARK || theme === THEME.LIGHT;
+    return Boolean(THEME_DEFINITIONS[theme]);
   }
 
   function loadThemePreference() {
     try {
       const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-      return isValidTheme(storedTheme) ? storedTheme : THEME.DARK;
+      return isValidTheme(storedTheme) ? storedTheme : 'dark';
     } catch (error) {
-      return THEME.DARK;
+      return 'dark';
     }
   }
 
@@ -120,16 +333,24 @@
   }
 
   function applyTheme(theme, persist = true) {
-    const nextTheme = isValidTheme(theme) ? theme : THEME.DARK;
+    const nextTheme = isValidTheme(theme) ? theme : 'dark';
     currentTheme = nextTheme;
     document.documentElement.setAttribute('data-re-theme', nextTheme);
+    const def = THEME_DEFINITIONS[nextTheme];
+    if (def && def.vars) {
+      Object.entries(def.vars).forEach(([prop, value]) => {
+        document.documentElement.style.setProperty(prop, value);
+      });
+    }
     if (persist) saveThemePreference(nextTheme);
   }
 
   function toggleTheme() {
-    const nextTheme = currentTheme === THEME.DARK ? THEME.LIGHT : THEME.DARK;
-    applyTheme(nextTheme, true);
-    return nextTheme;
+    const keys = Object.keys(THEME_DEFINITIONS);
+    const idx = keys.indexOf(currentTheme);
+    const next = keys[(idx + 1) % keys.length];
+    applyTheme(next, true);
+    return next;
   }
 
   function normalizeCacheRecord(record) {
@@ -802,6 +1023,45 @@
     document.head.appendChild(style);
   }
 
+  function loadSearchAnswerEnabled() {
+    try {
+      const stored = localStorage.getItem(SEARCH_ANSWER_ENABLED_KEY);
+      return stored === 'true';
+    } catch (e) { return false; }
+  }
+
+  function saveSearchAnswerEnabled(val) {
+    searchAnswerEnabled = val;
+    try { localStorage.setItem(SEARCH_ANSWER_ENABLED_KEY, String(val)); } catch (e) {}
+  }
+
+  function showBotWarning() {
+    const existing = document.getElementById('re_bot_warning');
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.id = 're_bot_warning';
+    div.textContent = '⚠️ Противник, вероятнее всего, является ботом (поиск >19.5 сек)';
+    document.body.appendChild(div);
+    setTimeout(() => { const el = document.getElementById('re_bot_warning'); if (el) el.remove(); }, 5000);
+  }
+
+  function startSearchTimer() {
+    stopSearchTimer();
+    searchStartTime = Date.now();
+    searchTimerInterval = setInterval(() => {
+      const elapsed = (Date.now() - searchStartTime) / 1000;
+      if (elapsed > 19.5) {
+        showBotWarning();
+        stopSearchTimer();
+      }
+    }, 500);
+  }
+
+  function stopSearchTimer() {
+    if (searchTimerInterval) { clearInterval(searchTimerInterval); searchTimerInterval = null; }
+    searchStartTime = null;
+  }
+
   function waitForGame() {
     return new Promise((resolve) => {
       if (window.game) {
@@ -1118,14 +1378,24 @@
         setResultBadgeState('.game_his_result', resp.right);
       }
 
+      if (resp?.function === 'player_found') {
+        stopSearchTimer();
+      }
+
       if ((resp?.function === 'trade_init' || resp?.function === 'trade_state') && autoBetEnabled) {
         const haveTurn = resp.have_turn === true || resp.have_turn === 1;
         if (haveTurn) {
           setTimeout(sendAutoBetIfNeeded, 100);
+        } else {
+          cancelAutoBetTimer();
         }
       }
 
       if ((resp?.function === 'trade_init' || resp?.function === 'trade_state') && !autoBetEnabled) {
+        cancelAutoBetTimer();
+      }
+
+      if (resp?.function === 'show_prob') {
         cancelAutoBetTimer();
       }
     };
@@ -1147,9 +1417,8 @@
 
       if (data?.action === 'find_player') {
         const select = document.querySelector('.re-subject-select');
-        if (select) {
-          data.subject = select.value;
-        }
+        if (select) { data.subject = select.value; }
+        startSearchTimer();
       }
 
       return originalSend(data);
@@ -1309,46 +1578,17 @@
         --re-gear-color: #f3e8ff;
       }
 
-      html[data-re-theme='light'] {
-        --re-bg-main: #eaf1ff;
-        --re-bg-glow-a: rgba(90, 133, 255, 0.24);
-        --re-bg-glow-b: rgba(91, 191, 170, 0.22);
-        --re-text-main: #1a2f47;
-        --re-text-muted: #4d6382;
-        --re-game-surface: linear-gradient(160deg, #ffffff 0%, #eef4ff 58%, #e6efff 100%);
-        --re-game-surface-border: rgba(112, 145, 205, 0.44);
-        --re-game-prob-surface: rgba(255, 255, 255, 0.84);
-        --re-game-prob-border: rgba(126, 154, 214, 0.45);
-        --re-player-found-surface: linear-gradient(145deg, #edf6ff 0%, #dcecff 100%);
-        --re-player-found-border: rgba(99, 141, 215, 0.5);
-        --re-button-gradient: linear-gradient(135deg, #5f86ff 0%, #53b3d3 100%);
-        --re-button-text: #ffffff;
-        --re-button-disabled-gradient: linear-gradient(135deg, #b9c5de 0%, #a7b8d5 100%);
-        --re-input-bg: rgba(255, 255, 255, 0.95);
-        --re-input-border: rgba(95, 134, 255, 0.42);
-        --re-turn-log-color: #1e4d8d;
-        --re-choice-bg: rgba(235, 243, 255, 0.92);
-        --re-choice-border: rgba(111, 142, 202, 0.55);
-        --re-gear-color: #2f4f7a;
-      }
-
       body {
         margin: 0;
         overflow: hidden !important;
         min-height: 100vh;
-        background:
-          radial-gradient(circle at 16% 12%, var(--re-bg-glow-a) 0%, transparent 35%),
-          radial-gradient(circle at 92% 88%, var(--re-bg-glow-b) 0%, transparent 40%),
-          var(--re-bg-main) !important;
+        background: radial-gradient(circle at 16% 12%, var(--re-bg-glow-a) 0%, transparent 35%), radial-gradient(circle at 92% 88%, var(--re-bg-glow-b) 0%, transparent 40%), var(--re-bg-main) !important;
         background-attachment: fixed !important;
         font-family: 'Segoe UI', 'Roboto', sans-serif !important;
         color: var(--re-text-main);
       }
 
-      .game_gear,
-      .ya-share2__container {
-        display: none !important;
-      }
+      .game_gear, .ya-share2__container { display: none !important; }
 
       .game_div {
         width: min(1000px, calc((100vw - 24px) / var(--re-game-reduce-factor))) !important;
@@ -1365,261 +1605,92 @@
         padding: 28px 28px 24px !important;
       }
 
-      .game_his_score,
-      .game_my_score,
-      .game_round,
-      .game_countdown,
-      .game_score {
-        color: var(--re-text-muted) !important;
-      }
+      .game_his_score, .game_my_score, .game_round, .game_countdown, .game_score { color: var(--re-text-muted) !important; }
 
-      .game_turn_order,
-      .game_turn_log {
-        color: var(--re-turn-log-color) !important;
-        font-weight: 700;
-      }
+      .game_turn_order, .game_turn_log { color: var(--re-turn-log-color) !important; font-weight: 700; }
 
       .game_prob {
         background: var(--re-game-prob-surface) !important;
         border: 1px solid var(--re-game-prob-border) !important;
         border-radius: 18px !important;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        left: 24px !important;
-        right: 24px !important;
-        top: 84px !important;
-        bottom: 76px !important;
+        left: 24px !important; right: 24px !important;
+        top: 84px !important; bottom: 76px !important;
         padding: 18px 20px 50px 20px !important;
       }
 
-      .game_prob_title {
-        position: relative;
-        z-index: 4;
-        margin: 10px 0 14px !important;
+      .game_prob_title { position: relative; z-index: 4; margin: 10px 0 14px !important; }
+
+      .game_answer { display: flex; align-items: center; gap: 10px; left: 24px !important; right: 24px !important; bottom: 16px !important; }
+
+      .game_my_result, .game_his_result {
+        position: absolute !important; width: 236px; min-height: 34px; display: flex; align-items: center; justify-content: center;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 1.2; font-weight: 700;
+        padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(171, 150, 211, 0.4);
+        background: rgba(34, 28, 54, 0.66); color: var(--re-text-main) !important; box-sizing: border-box;
       }
 
-      .game_answer {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        left: 24px !important;
-        right: 24px !important;
-        bottom: 16px !important;
+      .game_my_result { left: 16px !important; right: auto !important; bottom: 92px !important; text-align: center; }
+      .game_his_result { right: 16px !important; left: auto !important; bottom: 92px !important; text-align: center; }
+
+      .game_my_result.re-status-correct, .game_his_result.re-status-correct {
+        background: rgba(34, 92, 52, 0.74) !important; border-color: rgba(124, 255, 173, 0.88) !important; color: #92ffc0 !important;
       }
 
-      .game_my_result,
-      .game_his_result {
-        position: absolute !important;
-        width: 236px;
-        min-height: 34px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 12px;
-        line-height: 1.2;
-        font-weight: 700;
-        padding: 6px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(171, 150, 211, 0.4);
-        background: rgba(34, 28, 54, 0.66);
-        color: var(--re-text-main) !important;
-        box-sizing: border-box;
+      .game_my_result.re-status-wrong, .game_his_result.re-status-wrong {
+        background: rgba(120, 34, 51, 0.74) !important; border-color: rgba(255, 142, 165, 0.88) !important; color: #ff9ab0 !important;
       }
 
-      .game_my_result {
-        left: 16px !important;
-        right: auto !important;
-        bottom: 92px !important;
-        text-align: center;
+      .game_player_found { background: var(--re-player-found-surface) !important; border: 1px solid var(--re-player-found-border) !important; border-radius: 16px !important; color: var(--re-text-main) !important; }
+
+      .game_turn_bet, .game_answer_send, .game_find_player, .game_hist_back, .game_high_back {
+        background: var(--re-button-gradient) !important; border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: var(--re-button-text) !important; border-radius: 14px !important; padding: 11px 18px !important;
+        font-size: 15px !important; font-weight: 700 !important; letter-spacing: 0.02em;
+        box-shadow: 0 10px 20px rgba(79, 56, 147, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+        transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
       }
 
-      .game_his_result {
-        right: 16px !important;
-        left: auto !important;
-        bottom: 92px !important;
-        text-align: center;
+      .game_turn_bet:hover, .game_answer_send:hover, .game_find_player:hover, .game_hist_back:hover, .game_high_back:hover {
+        transform: translateY(-1px); box-shadow: 0 12px 24px rgba(79, 56, 147, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.34); filter: brightness(1.04);
       }
 
-      .game_my_result.re-status-correct,
-      .game_his_result.re-status-correct {
-        background: rgba(34, 92, 52, 0.74);
-        border-color: rgba(124, 255, 173, 0.88);
-        color: #92ffc0 !important;
-      }
+      .game_turn_bet:active, .game_answer_send:active, .game_find_player:active, .game_hist_back:active, .game_high_back:active { transform: translateY(0); }
 
-      .game_my_result.re-status-wrong,
-      .game_his_result.re-status-wrong {
-        background: rgba(120, 34, 51, 0.74);
-        border-color: rgba(255, 142, 165, 0.88);
-        color: #ff9ab0 !important;
-      }
-
-      .game_player_found {
-        background: var(--re-player-found-surface) !important;
-        border: 1px solid var(--re-player-found-border) !important;
-        border-radius: 16px !important;
-        color: var(--re-text-main) !important;
-      }
-
-      .game_turn_bet,
-      .game_answer_send,
-      .game_find_player,
-      .game_hist_back,
-      .game_high_back {
-        background: var(--re-button-gradient) !important;
-        border: 1px solid rgba(255, 255, 255, 0.18) !important;
-        color: var(--re-button-text) !important;
-        border-radius: 14px !important;
-        padding: 11px 18px !important;
-        font-size: 15px !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.02em;
-        box-shadow:
-          0 10px 20px rgba(79, 56, 147, 0.40),
-          inset 0 1px 0 rgba(255, 255, 255, 0.28);
-        transition:
-          transform 0.18s ease,
-          box-shadow 0.18s ease,
-          filter 0.18s ease;
-      }
-
-      .game_turn_bet:hover,
-      .game_answer_send:hover,
-      .game_find_player:hover,
-      .game_hist_back:hover,
-      .game_high_back:hover {
-        transform: translateY(-1px);
-        box-shadow:
-          0 12px 24px rgba(79, 56, 147, 0.5),
-          inset 0 1px 0 rgba(255, 255, 255, 0.34);
-        filter: brightness(1.04);
-      }
-
-      .game_turn_bet:active,
-      .game_answer_send:active,
-      .game_find_player:active,
-      .game_hist_back:active,
-      .game_high_back:active {
-        transform: translateY(0);
-      }
-
-      .game_turn_bet:disabled,
-      .game_answer_send:disabled {
-        background: var(--re-button-disabled-gradient) !important;
-        color: #d3c8e8 !important;
-        opacity: 0.72 !important;
-        box-shadow: none !important;
+      .game_turn_bet:disabled, .game_answer_send:disabled {
+        background: var(--re-button-disabled-gradient) !important; color: #d3c8e8 !important; opacity: 0.72 !important; box-shadow: none !important;
       }
 
       .game_answer_inp {
-        flex: 1;
-        background: var(--re-input-bg) !important;
-        border: 1px solid var(--re-input-border) !important;
-        color: var(--re-text-main) !important;
-        border-radius: 12px !important;
-        padding: 10px 12px !important;
-        outline: none !important;
-        min-width: 230px;
+        flex: 1; background: var(--re-input-bg) !important; border: 1px solid var(--re-input-border) !important;
+        color: var(--re-text-main) !important; border-radius: 12px !important; padding: 10px 12px !important;
+        outline: none !important; min-width: 230px;
       }
 
-      .game_answer_inp:focus {
-        border-color: #d1b7ff !important;
-        box-shadow: 0 0 0 3px rgba(181, 143, 255, 0.25) !important;
-      }
+      .game_answer_inp:focus { border-color: var(--re-accent) !important; box-shadow: 0 0 0 3px rgba(181, 143, 255, 0.25) !important; }
 
       .re-choice-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 34px;
-        height: 30px;
-        margin: 0 4px;
-        padding: 0 8px;
-        border: 1px solid var(--re-choice-border);
-        border-radius: 8px;
-        background: var(--re-choice-bg);
-        color: var(--re-text-main);
-        font-weight: 700;
-        cursor: pointer;
-        transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+        display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 30px; margin: 0 4px; padding: 0 8px;
+        border: 1px solid var(--re-choice-border); border-radius: 8px; background: var(--re-choice-bg); color: var(--re-text-main);
+        font-weight: 700; cursor: pointer; transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
       }
 
-      .re-choice-button:hover {
-        transform: translateY(-1px);
-        border-color: rgba(219, 196, 255, 0.75);
-      }
+      .re-choice-button:hover { transform: translateY(-1px); border-color: rgba(219, 196, 255, 0.75); }
 
-      .re-choice-button.is-selected {
-        background: rgba(50, 168, 92, 0.86);
-        border-color: rgba(151, 255, 187, 0.9);
-        color: #f4fff8;
-      }
+      .re-choice-button.is-selected { background: rgba(50, 168, 92, 0.86); border-color: rgba(151, 255, 187, 0.9); color: #f4fff8; }
+      .re-choice-button.is-excluded { background: rgba(182, 63, 84, 0.86); border-color: rgba(255, 156, 177, 0.9); color: #fff6f8; }
 
-      .re-choice-button.is-excluded {
-        background: rgba(182, 63, 84, 0.86);
-        border-color: rgba(255, 156, 177, 0.9);
-        color: #fff6f8;
-      }
+      .re-highlight-word { background: rgba(255, 235, 120, 0.3); color: #ffea8c; font-weight: 700; padding: 1px 2px; border-radius: 4px; border-bottom: 1px solid #ffd966; }
 
-      .re-highlight-word {
-        background: rgba(255, 235, 120, 0.3);
-        color: #ffea8c;
-        font-weight: 700;
-        padding: 1px 2px;
-        border-radius: 4px;
-        border-bottom: 1px solid #ffd966;
-      }
+      .game_countdown.re-timer-warning { color: #ffb347 !important; font-weight: 800; animation: pulse-warning 1s infinite; }
+      .game_countdown.re-timer-critical { color: #ff6b6b !important; font-weight: 900; animation: pulse-critical 0.5s infinite; }
 
-      html[data-re-theme='light'] .re-highlight-word {
-        background: rgba(255, 210, 60, 0.3);
-        color: #8b5e00;
-        border-bottom-color: #e6a800;
-      }
+      @keyframes pulse-warning { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+      @keyframes pulse-critical { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.05); } }
 
-      .game_countdown.re-timer-warning {
-        color: #ffb347 !important;
-        font-weight: 800;
-        animation: pulse-warning 1s infinite;
-      }
-
-      .game_countdown.re-timer-critical {
-        color: #ff6b6b !important;
-        font-weight: 900;
-        animation: pulse-critical 0.5s infinite;
-      }
-
-      @keyframes pulse-warning {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
-      }
-
-      @keyframes pulse-critical {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.6; transform: scale(1.05); }
-      }
-
-      .game_hist_back,
-      .game_high_back {
-        margin: 0 !important;
-        z-index: 2;
-      }
-
-      .game_hist_back {
-        left: 20px !important;
-        bottom: 20px !important;
-      }
-
-      .game_high_back {
-        top: 20px !important;
-        left: 20px !important;
-      }
-
-      .game_hist_list,
-      .game_high_list {
-        padding-bottom: 52px;
-      }
+      .game_hist_back, .game_high_back { margin: 0 !important; z-index: 2; }
+      .game_hist_back { left: 20px !important; bottom: 20px !important; }
+      .game_high_back { top: 20px !important; left: 20px !important; }
+      .game_hist_list, .game_high_list { padding-bottom: 52px; }
 
       .game_hist_ans_r { background: rgba(99, 179, 111, 0.22) !important; }
       .game_hist_ans_w { background: rgba(222, 100, 129, 0.20) !important; }
@@ -1627,63 +1698,25 @@
       .game_hist_score_m { color: #ff94a9 !important; }
       .game_hist_ans_diff { color: inherit !important; }
 
-      select[name="subject"],
-      select[class*="subject"]:not(.re-subject-select) {
-        display: none !important;
+      select[name="subject"], select[class*="subject"]:not(.re-subject-select) { display: none !important; }
+
+      #re_bot_warning {
+        position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 100001;
+        background: rgba(255, 107, 107, 0.95); color: #fff; padding: 10px 20px; border-radius: 12px;
+        font-size: 14px; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,0.4); display: none;
+        animation: slideDown 0.3s ease;
       }
 
+      @keyframes slideDown { from { top: -50px; opacity: 0; } to { top: 10px; opacity: 1; } }
+
       @media (max-width: 900px) {
-        .game_div {
-          min-width: 0 !important;
-          width: calc((100vw - 20px) / var(--re-game-reduce-factor)) !important;
-          max-width: calc((100vw - 20px) / var(--re-game-reduce-factor)) !important;
-          height: calc((100vh - 12px) / var(--re-game-reduce-factor)) !important;
-          min-height: calc((100vh - 12px) / var(--re-game-reduce-factor)) !important;
-          margin-top: 10px !important;
-          margin-bottom: 2px !important;
-          border-radius: 20px !important;
-          padding: 20px 14px 18px !important;
-        }
-
-        .game_prob {
-          left: 14px !important;
-          right: 14px !important;
-          top: 74px !important;
-          bottom: 84px !important;
-          padding: 14px 14px 50px 14px !important;
-        }
-
-        .game_answer {
-          flex-direction: column;
-          align-items: stretch;
-          left: 14px !important;
-          right: 14px !important;
-          bottom: 12px !important;
-        }
-
-        .game_answer_inp {
-          min-width: 0;
-          width: 100%;
-          margin-bottom: 10px;
-        }
-
-        .game_my_result,
-        .game_his_result {
-          left: 14px !important;
-          right: 14px !important;
-          width: auto;
-          max-width: none;
-          white-space: nowrap;
-          text-align: center;
-        }
-
-        .game_my_result {
-          bottom: 142px !important;
-        }
-
-        .game_his_result {
-          bottom: 106px !important;
-        }
+        .game_div { min-width: 0 !important; width: calc((100vw - 20px) / var(--re-game-reduce-factor)) !important; max-width: calc((100vw - 20px) / var(--re-game-reduce-factor)) !important; height: calc((100vh - 12px) / var(--re-game-reduce-factor)) !important; min-height: calc((100vh - 12px) / var(--re-game-reduce-factor)) !important; margin-top: 10px !important; margin-bottom: 2px !important; border-radius: 20px !important; padding: 20px 14px 18px !important; }
+        .game_prob { left: 14px !important; right: 14px !important; top: 74px !important; bottom: 84px !important; padding: 14px 14px 50px 14px !important; }
+        .game_answer { flex-direction: column; align-items: stretch; left: 14px !important; right: 14px !important; bottom: 12px !important; }
+        .game_answer_inp { min-width: 0; width: 100%; margin-bottom: 10px; }
+        .game_my_result, .game_his_result { left: 14px !important; right: 14px !important; width: auto; max-width: none; white-space: nowrap; text-align: center; }
+        .game_my_result { bottom: 142px !important; }
+        .game_his_result { bottom: 106px !important; }
       }
     `);
   }
@@ -2280,29 +2313,11 @@
 
     registerDefaultButtons() {
       this.registerMenuButton({
-        id: 're_leaderboard_btn',
-        label: 'Таблица лидеров',
-        icon: '🏆',
-        onClick: () => this.showLeaderboard()
-      });
-
-      this.registerMenuButton({
-        id: 're_history_btn',
-        label: 'История матчей',
-        icon: '🧾',
-        onClick: () => this.showHistory()
-      });
-
-      this.registerMenuButton({
         id: 're_auto_answer',
         label: 'Автоответчик',
-        icon: '🔴',
+        icon: '🤖',
         className: 'auto-answer-off',
-        onClick: () => {
-          toggleAutoAnswer();
-          this.updateAutoAnswerButton();
-          this.renderMainMenu();
-        }
+        onClick: () => this.showAutoAnswerPanel()
       });
 
       this.registerMenuButton({
@@ -2320,17 +2335,6 @@
       });
 
       this.registerMenuButton({
-        id: 're_theme_toggle',
-        label: 'Тема',
-        icon: '🌓',
-        onClick: () => {
-          toggleTheme();
-          this.updateThemeToggleButton();
-          this.renderMainMenu();
-        }
-      });
-
-      this.registerMenuButton({
         id: 're_calculator',
         label: 'Калькулятор',
         icon: '🧮',
@@ -2338,56 +2342,162 @@
       });
 
       this.registerMenuButton({
+        id: 're_leaderboard_btn',
+        label: 'Таблица лидеров',
+        icon: '🏆',
+        onClick: () => this.showLeaderboard()
+      });
+
+      this.registerMenuButton({
+        id: 're_history_btn',
+        label: 'История матчей',
+        icon: '🧾',
+        onClick: () => this.showHistory()
+      });
+
+      this.registerMenuButton({
+        id: 're_themes',
+        label: 'Темы',
+        icon: '🎨',
+        onClick: () => this.showThemes()
+      });
+
+      this.registerMenuButton({
         id: 're_formulas',
-        label: 'Шпаргалка по формулам',
+        label: 'Шпаргалка',
         icon: '📐',
         onClick: () => this.showFormulas()
       });
 
       this.registerMenuButton({
         id: 're_constants',
-        label: 'Константы и числа',
+        label: 'Константы',
         icon: '🔢',
         onClick: () => this.showConstants()
       });
 
       this.registerMenuButton({
         id: 're_periodic',
-        label: 'Таблица Менделеева',
+        label: 'Менделеев',
         icon: '⚛️',
         onClick: () => this.showPeriodicTable()
       });
 
-      this.registerMenuButton({
-        id: 're_answers_manager',
-        label: 'Менеджер ответов',
-        icon: '📚',
-        onClick: () => this.showAnswersManager()
-      });
-
-      this.registerMenuButton({
-        id: 're_search_answers',
-        label: 'Поиск ответов',
-        icon: '🔎',
-        onClick: () => this.showSearchAnswers()
-      });
-
-      this.registerMenuButton({
-        id: 're_settings',
-        label: 'Настройки',
-        icon: '⚙️',
-        onClick: () => this.showSettings()
-      });
-
-      this.registerMenuButton({
-        id: 're_themes',
-        label: 'Темы оформления',
-        icon: '🎨',
-        onClick: () => this.showThemes()
-      });
-
-      this.updateThemeToggleButton();
       this.updateAutoAnswerButton();
+    }
+
+    showAutoAnswerPanel() {
+      this.currentView = 'auto_answer_panel';
+      this.renderAutoAnswerPanel();
+    }
+
+    renderAutoAnswerPanel() {
+      const subjects = getAllSubjectsForSelection();
+      const totalAnswers = Object.values(customAnswers).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+
+      const bodyHtml = `
+        <div style="padding: 10px;">
+          <div style="margin-bottom: 15px; padding: 12px; background: var(--re-bg-card); border-radius: 10px;">
+            <h4 style="margin: 0 0 10px; font-size: 14px;">🤖 Автоответчик</h4>
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+              <input type="checkbox" id="aa-enabled" ${autoAnswerEnabled ? 'checked' : ''} style="width: 18px; height: 18px;">
+              <span style="font-size: 13px;">Включить автоответ</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+              <input type="checkbox" id="aa-auto-send" ${autoSendEnabled ? 'checked' : ''} style="width: 18px; height: 18px;">
+              <span style="font-size: 13px;">Автоотправка (CD зависит от длины задачи)</span>
+            </label>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+              <label style="font-size: 12px;">КД мин: <input type="number" id="send-cd-min" min="1" max="60" value="${autoSendCooldownMin}" style="width: 50px; padding: 5px; border-radius: 6px; border: 1px solid var(--re-input-border); background: var(--re-input-bg); color: var(--re-text-main);"></label>
+              <label style="font-size: 12px;">КД макс: <input type="number" id="send-cd-max" min="1" max="60" value="${autoSendCooldownMax}" style="width: 50px; padding: 5px; border-radius: 6px; border: 1px solid var(--re-input-border); background: var(--re-input-bg); color: var(--re-text-main);"></label>
+            </div>
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+              <input type="checkbox" id="aa-search-enable" ${searchAnswerEnabled ? 'checked' : ''} style="width: 18px; height: 18px;">
+              <span style="font-size: 13px;">Поиск ответов (Google + sdamgia.ru)</span>
+            </label>
+            <button id="save-aa-settings" class="toggle-button" style="padding: 8px 16px; font-size: 12px;">Сохранить</button>
+          </div>
+          <div style="margin-bottom: 15px; padding: 12px; background: var(--re-bg-card); border-radius: 10px;">
+            <h4 style="margin: 0 0 10px; font-size: 14px;">📚 База ответов (${totalAnswers})</h4>
+            <select id="aa-subject-select" class="highlight-input" style="padding: 10px; margin-bottom: 8px;">
+              ${subjects.map(s => `<option value="${s.value}">${s.label}</option>`).join('')}
+            </select>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+              <button id="aa-show-answers" class="toggle-button" style="padding: 6px 10px; font-size: 11px;">Показать</button>
+              <button id="aa-import" class="toggle-button" style="padding: 6px 10px; font-size: 11px;">Импорт</button>
+              <button id="aa-export" class="toggle-button" style="padding: 6px 10px; font-size: 11px;">Экспорт</button>
+              <button id="aa-clear" class="toggle-button off" style="padding: 6px 10px; font-size: 11px;">Очистить</button>
+            </div>
+            <input type="text" id="aa-manual-q" class="highlight-input" placeholder="Вопрос" style="margin-bottom: 6px; font-size: 12px;">
+            <input type="text" id="aa-manual-a" class="highlight-input" placeholder="Ответ" style="margin-bottom: 8px; font-size: 12px;">
+            <button id="aa-add" class="toggle-button" style="padding: 6px 12px; font-size: 12px;">Добавить</button>
+            <div id="aa-answers-list" style="margin-top: 10px; max-height: 180px; overflow-y: auto;"></div>
+          </div>
+          <div style="padding: 12px; background: var(--re-bg-card); border-radius: 10px;">
+            <h4 style="margin: 0 0 10px; font-size: 14px;">🔎 Поиск ответа</h4>
+            <textarea id="aa-search-input" class="highlight-input" rows="2" placeholder="Вставьте текст задачи или ссылку sdamgia.ru" style="margin-bottom: 8px;"></textarea>
+            <button id="aa-do-search" class="toggle-button" style="width: 100%; padding: 8px;">Найти на sdamgia.ru</button>
+          </div>
+        </div>
+      `;
+      this.renderView('🤖 Автоответчик', bodyHtml, { closeReturnsToMain: true });
+
+      this.contentDiv.querySelector('#aa-enabled')?.addEventListener('change', (e) => { autoAnswerEnabled = e.target.checked; saveAutoAnswerPreference(autoAnswerEnabled); this.updateAutoAnswerButton(); });
+      this.contentDiv.querySelector('#aa-auto-send')?.addEventListener('change', (e) => { autoSendEnabled = e.target.checked; saveAutoSendSettings(); });
+      this.contentDiv.querySelector('#aa-search-enable')?.addEventListener('change', (e) => saveSearchAnswerEnabled(e.target.checked));
+      this.contentDiv.querySelector('#save-aa-settings')?.addEventListener('click', () => {
+        const min = this.contentDiv.querySelector('#send-cd-min');
+        const max = this.contentDiv.querySelector('#send-cd-max');
+        if (min && max) {
+          autoSendCooldownMin = Math.max(1, parseInt(min.value, 10) || 5);
+          autoSendCooldownMax = Math.max(autoSendCooldownMin, parseInt(max.value, 10) || 15);
+          saveAutoSendSettings();
+        }
+        this.updateAutoAnswerButton();
+      });
+
+      this.contentDiv.querySelector('#aa-show-answers')?.addEventListener('click', () => {
+        const subj = this.contentDiv.querySelector('#aa-subject-select')?.value || 'rus';
+        const answers = getCustomAnswersForSubject(subj);
+        const list = this.contentDiv.querySelector('#aa-answers-list');
+        if (list) {
+          if (!answers.length) { list.innerHTML = '<p style="font-size: 12px; color: var(--re-text-muted);">Нет ответов.</p>'; return; }
+          list.innerHTML = answers.map((a, i) => `<div style="padding: 6px 8px; margin: 3px 0; background: var(--re-bg-soft); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;"><div style="flex:1;"><div style="font-weight:bold; font-size:12px;">${escapeHtml(a.a)}</div><div style="font-size:10px; color:var(--re-text-muted);">${escapeHtml(a.q.substring(0,50))}...</div></div><button data-del="${i}" data-subj="${subj}" style="padding:3px 6px; background:rgba(255,80,80,0.3); border:none; border-radius:4px; color:#ff8080; cursor:pointer; font-size:11px;">✕</button></div>`).join('');
+          list.querySelectorAll('[data-del]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const idx = parseInt(btn.dataset.del);
+              const s = btn.dataset.subj;
+              if (customAnswers[s]) { customAnswers[s].splice(idx, 1); saveCustomAnswers(); this.renderAutoAnswerPanel(); }
+            });
+          });
+        }
+      });
+
+      this.contentDiv.querySelector('#aa-import')?.addEventListener('click', () => {
+        const data = prompt('Вставьте JSON:');
+        if (data && importCustomAnswers(data)) this.renderAutoAnswerPanel();
+      });
+      this.contentDiv.querySelector('#aa-export')?.addEventListener('click', () => {
+        const data = exportCustomAnswers();
+        navigator.clipboard.writeText(data).then(() => alert('Скопировано!')).catch(() => prompt('Скопируйте:', data));
+      });
+      this.contentDiv.querySelector('#aa-clear')?.addEventListener('click', () => { if (confirm('Удалить всё?')) { customAnswers = {}; saveCustomAnswers(); this.renderAutoAnswerPanel(); } });
+      this.contentDiv.querySelector('#aa-add')?.addEventListener('click', () => {
+        const subj = this.contentDiv.querySelector('#aa-subject-select')?.value || 'rus';
+        const q = this.contentDiv.querySelector('#aa-manual-q')?.value?.trim();
+        const a = this.contentDiv.querySelector('#aa-manual-a')?.value?.trim();
+        if (q && a) { addCustomAnswer(subj, q, a); this.renderAutoAnswerPanel(); }
+      });
+      this.contentDiv.querySelector('#aa-do-search')?.addEventListener('click', () => {
+        const subj = this.contentDiv.querySelector('#aa-subject-select')?.value || 'rus';
+        const input = this.contentDiv.querySelector('#aa-search-input')?.value?.trim();
+        if (!input) return;
+        if (input.includes('sdamgia.ru/problem')) { window.open(input, '_blank'); }
+        else {
+          const urls = searchAnswerOnSdamgia(input, subj);
+          window.open(urls.searchUrl, '_blank');
+        }
+      });
     }
 
     toggleDrawer() {
@@ -2752,19 +2862,61 @@
     }
 
     renderCalculator() {
+      const buttons = [
+        ['C', '(', ')', '/'], ['7', '8', '9', '*'], ['4', '5', '6', '-'], ['1', '2', '3', '+'], ['0', '.', 'x²', '=']
+      ];
+      let displayVal = '';
+      const calcEl = this.contentDiv;
+
       const bodyHtml = `
         <div style="padding: 10px;">
-          <input type="text" id="calc-display" readonly style="width: 100%; padding: 15px; font-size: 24px; text-align: right; background: var(--re-input-bg); border: 1px solid var(--re-input-border); border-radius: 10px; color: var(--re-text-main); margin-bottom: 10px; box-sizing: border-box;">
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
-            ${['C', '(', ')', '/', '7', '8', '9', '*', '4', '5', '6', '-', '1', '2', '3', '+', '0', '.', '=', 'x²'].map(btn => {
-              const val = btn === '=' ? 'eval(this.value)' : btn === 'x²' ? '**2' : btn;
-              return `<button onclick="this.parentElement.previousElementSibling.value=${btn === '=' ? 'eval(this.previousElementSibling.value)' : btn === 'x²' ? 'Math.pow(eval(this.previousElementSibling.value), 2)' : `this.parentElement.previousElementSibling.value+=${JSON.stringify(btn)}`}" style="padding: 14px; font-size: 18px; border-radius: 8px; border: 1px solid var(--re-input-border); background: ${['/', '*', '-', '+', '='].includes(btn) ? 'var(--re-accent)' : 'var(--re-bg-card)'}; color: var(--re-text-main); cursor: pointer; font-weight: bold;">${btn}</button>`;
-            }).join('')}
-          </div>
-          <button onclick="document.getElementById('calc-display').value=''" class="toggle-button" style="margin-top: 10px; width: 100%;">Очистить</button>
+          <input type="text" id="calc-display" readonly value="" placeholder="0" style="width: 100%; padding: 15px; font-size: 24px; text-align: right; background: var(--re-input-bg); border: 1px solid var(--re-input-border); border-radius: 10px; color: var(--re-text-main); margin-bottom: 10px; box-sizing: border-box;">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;" id="calc-buttons"></div>
+          <p style="font-size: 11px; color: var(--re-text-muted); margin-top: 10px;">Горячие клавиши: 0-9, + - * / . ( ) = Enter Backspace Escape</p>
         </div>
       `;
       this.renderView('🧮 Калькулятор', bodyHtml, { closeReturnsToMain: true });
+
+      const display = this.contentDiv.querySelector('#calc-display');
+      const btnContainer = this.contentDiv.querySelector('#calc-buttons');
+
+      const ops = ['/', '*', '-', '+'];
+
+      function updateDisplay() { if (display) display.value = displayVal || '0'; }
+
+      function handleBtn(btn) {
+        if (btn === 'C') { displayVal = ''; updateDisplay(); return; }
+        if (btn === 'x²') { try { displayVal = String(Math.pow(eval(displayVal), 2)); updateDisplay(); } catch(e) { displayVal = 'Error'; updateDisplay(); } return; }
+        if (btn === '=') {
+          try { displayVal = String(eval(displayVal)); updateDisplay(); } catch(e) { displayVal = 'Error'; updateDisplay(); }
+          return;
+        }
+        displayVal += btn;
+        updateDisplay();
+      }
+
+      buttons.flat().forEach(btn => {
+        const el = document.createElement('button');
+        el.textContent = btn;
+        el.style.cssText = `padding: 14px; font-size: 18px; border-radius: 8px; border: 1px solid var(--re-input-border); background: ${ops.includes(btn) ? 'var(--re-accent)' : 'var(--re-bg-card)'}; color: var(--re-text-main); cursor: pointer; font-weight: bold;`;
+        el.addEventListener('click', () => handleBtn(btn));
+        btnContainer.appendChild(el);
+      });
+
+      const calcKeyHandler = (e) => {
+        if (this.currentView !== VIEW.CALCULATOR) { document.removeEventListener('keydown', calcKeyHandler); return; }
+        const key = e.key;
+        if (key >= '0' && key <= '9') { displayVal += key; updateDisplay(); e.preventDefault(); }
+        else if (key === '+' || key === '-' || key === '*' || key === '/') { displayVal += key; updateDisplay(); e.preventDefault(); }
+        else if (key === '.') { displayVal += '.'; updateDisplay(); e.preventDefault(); }
+        else if (key === '(') { displayVal += '('; updateDisplay(); e.preventDefault(); }
+        else if (key === ')') { displayVal += ')'; updateDisplay(); e.preventDefault(); }
+        else if (key === 'Enter' || key === '=') { try { displayVal = String(eval(displayVal)); updateDisplay(); } catch(err) { displayVal = 'Error'; updateDisplay(); } e.preventDefault(); }
+        else if (key === 'Backspace') { displayVal = displayVal.slice(0, -1); updateDisplay(); e.preventDefault(); }
+        else if (key === 'Escape') { displayVal = ''; updateDisplay(); e.preventDefault(); }
+      };
+
+      document.addEventListener('keydown', calcKeyHandler);
     }
 
     showFormulas() {
@@ -2776,16 +2928,50 @@
       const formulas = [
         { subject: 'Математика', items: [
           'a²-b² = (a-b)(a+b)', 'a³+b³ = (a+b)(a²-ab+b²)', 'a³-b³ = (a-b)(a²+ab+b²)',
-          'sin²x + cos²x = 1', '1 + tg²x = 1/cos²x', 'logₐ(bc) = logₐb + logₐc',
-          'S = πr²', 'V = 4/3πr³', 'y = ax² + bx + c', 'D = b² - 4ac'
+          'sin²x + cos²x = 1', '1 + tg²x = 1/cos²x', '1 + ctg²x = 1/sin²x',
+          'logₐ(bc) = logₐb + logₐc', 'logₐ(b/c) = logₐb - logₐc', 'logₐb^c = c·logₐb',
+          'S = πr²', 'V = 4/3πr³', 'C = 2πr', 'V = πr²h', 'Sбок = 2πrh',
+          'y = ax² + bx + c', 'D = b² - 4ac', 'x = (-b±√D)/2a',
+          'x = -b/2a (вершина параболы)', '|x| = √(x²)', '√(ab) = √a·√b'
+        ]},
+        { subject: 'Профильная матем.', items: [
+          'sin(α±β) = sinαcosβ ± cosαsinβ', 'cos(α±β) = cosαcosβ ∓ sinαsinβ',
+          'tg(α±β) = (tgα ± tgβ)/(1 ∓ tgα·tgβ)', 'sin2α = 2sinαcosα',
+          'cos2α = cos²α - sin²α', 'tg2α = 2tgα/(1-tg²α)',
+          'sinα = 2tg(α/2)/(1+tg²(α/2))', 'cosα = (1-tg²(α/2))/(1+tg²(α/2))',
+          'a/sinA = b/sinB = c/sinC = 2R', 'a² = b² + c² - 2bc·cosA',
+          'S = ½·ab·sinC', 'S = √p(p-a)(p-b)(p-c)', 'p = (a+b+c)/2',
+          '∫xⁿdx = xⁿ⁺¹/(n+1) + C', '∫1/x dx = ln|x| + C', '∫eˣdx = eˣ + C',
+          'lim(x→0) sinx/x = 1', 'lim(x→0) (1+1/x)ˣ = e',
+          '(u·v)′ = u′·v + u·v′', '(u/v)′ = (u′·v - u·v′)/v²'
+        ]},
+        { subject: 'Базовая матем.', items: [
+          'P = 2πr', 'S = πr²', 'V = πr²h', 'S = ½·a·h',
+          'm = ρ·V', 'S = ½·d₁·d₂ (ромб)', 'V = abc (параллелепипед)',
+          'S = ½·ah (треугольник)', 'a² + b² = c² (прямоуг. треуг.)',
+          's = v·t', 'A = F·s', 'P = A/t', 'η = Aпол/Азатр'
         ]},
         { subject: 'Физика', items: [
           'F = ma', 'E = mc²', 'P = mv', 'p = F/S', 'Eₚ = mgh',
-          'Q = cm(t₂-t₁)', 'I = q/t', 'U = IR', 'λ = c/f', 'E = F/q'
+          'Q = cm(t₂-t₁)', 'I = q/t', 'U = IR', 'λ = c/f', 'E = F/q',
+          'v = λf', 'T = 2π√(L/g)', 'F = kx', 'E = ½kx²',
+          'p = ρgh', 'F = ρVg', 'σ = F/S', 'ε = Δl/l',
+          'A = qU', 'W = qU/2', 'B = F/Il', 'Φ = BS'
         ]},
         { subject: 'Химия', items: [
           'pH = -lg[H⁺]', 'n = m/M', 'Vₘ = 22.4 л/моль', 'C = n/V', 'PV = nRT',
-          'KMnO₄ → K₂MnO₄ + MnO₂ + O₂', 'CₙH₂ₙ₊₂ алканы', 'CₙH₂ₙ алкены'
+          'Cм = n/V', 'm = n·M', 'V = n·Vm', 'Д = Mr/Ar(воздух)',
+          'ω = m(в-во)/m(p-pa)', 'C = m/V', 'α = Ka/Kw',
+          'CₙH₂ₙ₊₂ алканы', 'CₙH₂ₙ алкены', 'CₙH₂ₙ₋₂ алкины',
+          'R = M/m', 'K = [A]ⁿ[B]ᵐ/(C)ᵖ(D)ᑫ', 'Э = m/F·It'
+        ]},
+        { subject: 'Информатика', items: [
+          'N = 2^i (i-разрядность)', 'V = I·t', 'V = v·t',
+          '1 байт = 8 бит', '1 Кб = 1024 байт', '1 Мб = 1024 Кб',
+          'a∧b = min(a,b)', 'a∨b = max(a,b)', 'a⊕b = (a∨b)∧¬(a∧b)',
+          '¬a = 1-a', 'A + B = A∨B - A∧B', 'log₂N = i',
+          'S = a² (квадрат)', 'P = 4a', 'V = a³ (куб)',
+          'M = Σ(ai - μ)² (дисперсия)', 'μ = Σai/n (ср. арифм.)'
         ]}
       ];
 
@@ -3093,6 +3279,7 @@
     loadAutoSendSettings();
     customAnswers = loadCustomAnswers();
     loadToolsTheme();
+    searchAnswerEnabled = loadSearchAnswerEnabled();
     selectedSubject = loadSelectedSubject();
     exposePublicApi();
     applySiteStyles();
