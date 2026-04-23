@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ReshEge-Ad-Cleaner
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.1.0
 // @description  Блокирует рекламу и предотвращает антиадблок
 // @author       Danex-Exe
 // @match        *://*.sdamgia.ru/*
